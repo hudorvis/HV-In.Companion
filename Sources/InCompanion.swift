@@ -42,7 +42,7 @@ struct SurfaceView: View {
                         HStack(spacing: gap) {
                             ForEach(0..<c,id: \.self) { col in
                                 let i = row*c+col
-                                DeckKey(image: satellite.images[i], enabled: satellite.connected, haptics: haptics) { down in satellite.press(i,down) }
+                                DeckKey(image: satellite.images[i], enabled: satellite.connected && !settings, haptics: haptics) { down in satellite.press(i,down) }
                                     .frame(width: side,height: side)
                             }
                         }
@@ -59,6 +59,7 @@ struct SurfaceView: View {
             else { connect() }
         }
         .onAppear { UIApplication.shared.isIdleTimerDisabled = awake; connect() }
+        .onDisappear { satellite.disconnect(); UIApplication.shared.isIdleTimerDisabled = false }
     }
     private func connect() { satellite.connect(host: host, port: UInt16(port) ?? 0, columns: max(1,min(columns,8)), rows: max(1,min(rows,6))) }
     private var configuration: some View {
@@ -72,7 +73,7 @@ struct SurfaceView: View {
                     Stepper("Columns: \(columns)",value:$columns,in:1...8); Stepper("Rows: \(rows)",value:$rows,in:1...6)
                 }
                 Section("Display") { Toggle("Haptic feedback",isOn:$haptics); Toggle("Keep screen awake",isOn:$awake) }
-                Section { Text("In.Companion v26.11.26.03").foregroundStyle(.secondary) }
+                Section { Text("In.Companion v26.11.26.04").foregroundStyle(.secondary) }
             }.navigationTitle("Settings").toolbar { ToolbarItem(placement:.confirmationAction) { Button("Done") { settings = false; UIApplication.shared.isIdleTimerDisabled = awake; connect() } } }
         }.interactiveDismissDisabled()
     }
@@ -93,7 +94,7 @@ struct DeckKey: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: radius*0.8).fill(.black)
                     if let image { Image(uiImage:image).resizable().interpolation(.high).aspectRatio(contentMode:.fit) }
-                }.clipShape(RoundedRectangle(cornerRadius:radius*0.8)).padding(size*0.055)
+                }.padding(size*0.065)
                 RoundedRectangle(cornerRadius:radius).strokeBorder(LinearGradient(colors:[.white.opacity(0.28),.white.opacity(0.04)],startPoint:.top,endPoint:.bottom),lineWidth:1)
             }.shadow(color:.black.opacity(0.9),radius:3,y:3).scaleEffect(down ? 0.94 : 1).opacity(enabled ? 1 : 0.45)
              .overlay { TouchKey(enabled:enabled) { value in down = value; if value && haptics { UIImpactFeedbackGenerator(style:.light).impactOccurred() }; action(value) } }

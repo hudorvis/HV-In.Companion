@@ -12,6 +12,7 @@ final class Satellite: ObservableObject {
     private var buffer = Data()
     private var timer: Timer?
     private var lastResponse = Date()
+    private var ready = false
     private var enabled = false
     private var target = ""
     private var port: UInt16 = 16622
@@ -34,7 +35,7 @@ final class Satellite: ObservableObject {
             guard let self, self.enabled else { return }
             if self.socket == nil { self.start() }
             else if Date().timeIntervalSince(self.lastResponse) > 8 { self.failed() }
-            else { self.send("PING incompanion") }
+            else if self.ready { self.send("PING incompanion") }
         }
     }
     private func start() {
@@ -45,7 +46,7 @@ final class Satellite: ObservableObject {
         c.stateUpdateHandler = { [weak self, weak c] state in
             guard let self, let c, self.socket === c else { return }
             switch state {
-            case .ready: self.receive(c)
+            case .ready: self.ready = true; self.receive(c)
             case .failed(_), .cancelled: self.failed()
             default: break
             }
@@ -54,7 +55,7 @@ final class Satellite: ObservableObject {
     }
     private func failed() {
         let old = socket; socket = nil; old?.cancel()
-        connected = false; held.removeAll(); images.removeAll(); buffer.removeAll()
+        ready = false; connected = false; held.removeAll(); images.removeAll(); buffer.removeAll()
         status = enabled ? "Reconnecting" : "Disconnected"
     }
     func disconnect() {
@@ -84,13 +85,13 @@ final class Satellite: ObservableObject {
         let parts = line.split(separator: " ")
         guard let command = parts.first else { return }
         let fields = Dictionary(parts.dropFirst().compactMap { part -> (String,String)? in
-            let pair = part.split(separator: "=", maxSplits: 1); guard pair.count == 2 else { return nil }
+            let pair = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false); guard pair.count == 2 else { return nil }
             return (String(pair[0]), String(pair[1]).trimmingCharacters(in: CharacterSet(charactersIn: "\"")))
         }, uniquingKeysWith: { _, new in new })
         switch command {
         case "BEGIN":
             let version = (fields["ApiVersion"] ?? "0").split(separator: ".").compactMap { Int($0) }
-            guard version.count >= 2, version[0] == 1, version[1] >= 4 else { disconnect(); status = "Unsupported API"; return }
+            guard version.count >= 2, version[0] == 1 else { disconnect(); status = "Unsupported API"; return }
             send("ADD-DEVICE DEVICEID=\(id) PRODUCT_NAME=\"In.Companion\" KEYS_TOTAL=\(columns * rows) KEYS_PER_ROW=\(columns) BITMAPS=true BRIGHTNESS=false")
         case "ADD-DEVICE":
             if parts.dropFirst().first == "OK" { connected = true; status = "Connected" }
@@ -100,16 +101,16 @@ final class Satellite: ObservableObject {
         case "KEY-STATE":
             guard fields["DEVICEID"] == id, let key = fields["KEY"] else { return }
             let rc = key.split(separator: "/").compactMap { Int($0) }
-            let index = Int(key) ?? (rc.count == 2 ? rc[0] * columns + rc[1] : -1)
+            let index = Int(key) ?? (rc.count == 2 && (0..<rows).contains(rc[0]) && (0..<columns).contains(rc[1]) ? rc[0] * columns + rc[1] : -1)
             guard (0..<(columns * rows)).contains(index) else { return }
             if let b = fields["BITMAP"], let image = Self.bitmap(b) { images[index] = image }
-            else { images.removeValue(forKey: index) }
+            else if fields["BITMAP"] != nil { images.removeValue(forKey: index) }
         default: break
         }
     }
     static func bitmap(_ value: String) -> UIImage? {
         if value.hasPrefix("data:"), let comma = value.firstIndex(of: ","), let d = Data(base64Encoded: String(value[value.index(after: comma)...])) { return UIImage(data: d) }
-        guard let data = Data(base64Encoded: value), data.count % 3 == 0 else { return nil }
+        guard let data = Data(base64Encoded: value), data.count > 0, data.count % 3 == 0 else { return nil }
         let side = Int(Double(data.count / 3).squareRoot())
         guard side > 0, side <= 512, side * side * 3 == data.count else { return nil }
         var rgba = Data(capacity: side * side * 4)
