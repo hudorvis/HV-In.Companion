@@ -9,8 +9,8 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: au.h-v.in.companion
-      groups:
-        - in_companion
+      vars:
+        APP_STORE_APPLE_ID: '6839444405'
       xcode: latest
     triggering:
       events:
