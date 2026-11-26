@@ -1,4 +1,15 @@
-# In.Companion v26.11.26.02
-Native iPhone/iPad Bitfocus Companion Satellite surface. No demo mode. Companion supplies all key face artwork. Configure host and grid using the cog. TCP 16622 by default.
+# In.Companion v26.11.26.03
 
-Generate the Xcode project with `xcodegen generate`. Codemagic configuration requires the Apple integration `codemagic`, signing for `au.h-v.in.companion`, and environment group `in_companion` with numeric `APP_STORE_APPLE_ID`. Physical device and Companion validation pending.
+Native iPhone/iPad Bitfocus Companion Satellite surface. No demo mode. Companion supplies key artwork. TCP port 16622 by default. Configure host and grid using the settings cog.
+
+## Build
+
+On macOS with Xcode and XcodeGen installed, run `swift scripts/icon.swift` and `xcodegen generate`, then open `In.Companion.xcodeproj`. GitHub Actions performs an unsigned simulator compile check.
+
+## Codemagic
+
+Use the `ios-release` workflow, existing App Store Connect integration named `codemagic`, App Store signing for `au.h-v.in.companion`, and environment group `in_companion` containing numeric `APP_STORE_APPLE_ID`. Main branch pushes trigger signed builds and upload to App Store Connect. Public review submission is disabled.
+
+## Testing
+
+Compilation, physical-device tests and live Companion protocol interoperability must be verified before App Store submission. Use harmless test buttons initially. Repository is public; never commit signing credentials or private keys.
