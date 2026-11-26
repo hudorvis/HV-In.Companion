@@ -9,6 +9,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: brew list xcodegen || brew install xcodegen
+      - name: Test Satellite protocol
+        run: |
+          swiftc Sources/SatelliteProtocol.swift Tests/SatelliteProtocolTests.swift -o "$RUNNER_TEMP/satellite-protocol-tests"
+          "$RUNNER_TEMP/satellite-protocol-tests"
       - run: swift scripts/icon.swift
       - run: xcodegen generate
       - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
