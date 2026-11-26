@@ -1,0 +1,14 @@
+name: iOS compile check
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+jobs:
+  compile:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew list xcodegen || brew install xcodegen
+      - run: swift scripts/icon.swift
+      - run: xcodegen generate
+      - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
