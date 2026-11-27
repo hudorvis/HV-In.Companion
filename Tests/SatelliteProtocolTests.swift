@@ -7,6 +7,7 @@ struct SatelliteProtocolTests {
         testMessages()
         testConfiguration()
         testPhysicalKeyPresses()
+        testButtonReplies()
         testVerification()
         try testSavedServers()
         print("Satellite protocol tests passed")
@@ -77,6 +78,16 @@ struct SatelliteProtocolTests {
         precondition(grid.keyPressCommand(deviceID: "surface", index: 7, pressed: false)
                      == "KEY-PRESS DEVICEID=surface KEY=1/2 PRESSED=0")
         precondition(grid.keyPressCommand(deviceID: "surface", index: 15, pressed: false) == nil)
+    }
+
+    static func testButtonReplies() {
+        let accepted = SatelliteMessage(#"KEY-PRESS OK DEVICEID="surface""#)!
+        let refused = SatelliteMessage(#"KEY-PRESS ERROR DEVICEID="surface" MESSAGE="Invalid key""#)!
+        let other = SatelliteMessage(#"KEY-STATE DEVICEID="surface" KEY=0/0 PRESSED=1"#)!
+        precondition(SatelliteButtonReply(accepted, deviceID: "surface")?.result == .accepted)
+        precondition(SatelliteButtonReply(refused, deviceID: "surface")?.result == .rejected("Invalid key"))
+        precondition(SatelliteButtonReply(accepted, deviceID: "different") == nil)
+        precondition(SatelliteButtonReply(other, deviceID: "surface") == nil)
     }
 
     static func testSavedServers() throws {

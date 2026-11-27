@@ -28,6 +28,7 @@ final class Satellite: ObservableObject {
     @Published private(set) var held: Set<Int> = []
     @Published private(set) var remoteHeld: Set<Int> = []
     @Published private(set) var error: String?
+    @Published private(set) var lastButtonReply: String?
 
     var connected: Bool { stage == .connected }
 
@@ -57,6 +58,11 @@ final class Satellite: ObservableObject {
     private var probeStarted = false
     private var firstArtworkLocation: String?
     private var bitmapFormat = ""
+    private struct PendingButtonInput {
+        let description: String
+        let sentAt: ContinuousClock.Instant
+    }
+    private var pendingButtonInputs: [PendingButtonInput] = []
 
     func connect(_ configuration: SurfaceConfiguration, endpoint: NWEndpoint? = nil) {
         disconnect()
@@ -65,6 +71,7 @@ final class Satellite: ObservableObject {
         wantsConnection = true
         retryDelay = 1
         error = nil
+        lastButtonReply = nil
         resetVerification()
         setStage(.opening)
         if drainingSocket == nil { start() }
@@ -93,6 +100,7 @@ final class Satellite: ObservableObject {
         }
         socket = nil
         stopTimers()
+        pendingButtonInputs.removeAll()
         clearSurface()
         resetVerification()
         setStage(.disconnected)
@@ -100,14 +108,19 @@ final class Satellite: ObservableObject {
 
     @discardableResult
     func press(_ index: Int, _ down: Bool) -> Bool {
-        guard connected, let socket,
-              let command = configuration?.keyPressCommand(deviceID: surfaceID, index: index, pressed: down)
+        guard connected, let socket, let configuration,
+              let command = configuration.keyPressCommand(deviceID: surfaceID, index: index, pressed: down)
         else { return false }
         if down {
             guard images[index] != nil, held.insert(index).inserted else { return false }
         } else {
             guard held.remove(index) != nil else { return false }
         }
+        let row = index / configuration.columns + 1
+        let column = index % configuration.columns + 1
+        let state = down ? "press" : "release"
+        pendingButtonInputs.append(PendingButtonInput(
+            description: "Row \(row), column \(column) · \(state)", sentAt: .now))
         transmit(command, on: socket)
         return true
     }
@@ -208,6 +221,16 @@ final class Satellite: ObservableObject {
             || (Int(message.body.trimmingCharacters(in: .whitespaces)) ?? 1) % 15 == 1
         if (message.command != "KEY-STATE" || sampleKeyState) && sampleHeartbeat {
             appendLog("RX · " + message.diagnosticLine)
+        }
+        if let reply = SatelliteButtonReply(message, deviceID: surfaceID),
+           !pendingButtonInputs.isEmpty {
+            let input = pendingButtonInputs.removeFirst()
+            switch reply.result {
+            case .accepted:
+                lastButtonReply = "\(input.description) accepted by Companion."
+            case .rejected(let detail):
+                lastButtonReply = "\(input.description) rejected. \(detail)"
+            }
         }
         if message.failed {
             let detail = "\(message.command): \(message["MESSAGE"] ?? "Companion rejected the command.")"
@@ -351,6 +374,10 @@ final class Satellite: ObservableObject {
         heartbeatTask = Task { @MainActor [weak self, weak connection] in
             while !Task.isCancelled {
                 guard let self, let connection, self.socket === connection else { return }
+                if let input = self.pendingButtonInputs.first, input.sentAt.duration(to: .now) > .seconds(6) {
+                    let detail = "\(input.description) · Companion did not acknowledge this input."
+                    if self.lastButtonReply != detail { self.lastButtonReply = detail }
+                }
                 if self.lastPong.duration(to: .now) > .seconds(7) {
                     self.fail("Companion stopped responding to Satellite keepalives.")
                     return
@@ -369,6 +396,7 @@ final class Satellite: ObservableObject {
         socket = nil
         previous?.cancel()
         stopTimers()
+        pendingButtonInputs.removeAll()
         clearSurface()
         guard wantsConnection, retry else {
             wantsConnection = false

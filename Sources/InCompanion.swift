@@ -184,6 +184,11 @@ struct SurfaceView: View {
                         }
                     }
                 }
+                if let reply = satellite.lastButtonReply {
+                    LabeledContent("Last button reply") {
+                        Text(reply).multilineTextAlignment(.trailing)
+                    }
+                }
                 if let error = satellite.error {
                     Text(error).foregroundStyle(.secondary)
                 }

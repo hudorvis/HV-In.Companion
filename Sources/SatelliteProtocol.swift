@@ -159,6 +159,26 @@ enum SatelliteFramingError: Error {
     case lineTooLong
 }
 
+struct SatelliteButtonReply {
+    enum Result: Equatable {
+        case accepted
+        case rejected(String)
+    }
+
+    let result: Result
+
+    init?(_ message: SatelliteMessage, deviceID: String) {
+        guard message.command == "KEY-PRESS", message["DEVICEID"] == deviceID else { return nil }
+        if message.failed {
+            result = .rejected(message["MESSAGE"] ?? "Companion rejected the command.")
+        } else if message.succeeded {
+            result = .accepted
+        } else {
+            return nil
+        }
+    }
+}
+
 struct SatelliteFraming {
     static let limit = 2 * 1024 * 1024
     private var pending = Data()

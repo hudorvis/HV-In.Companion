@@ -1,4 +1,4 @@
-# In.Companion v26.11.27.03
+# In.Companion v26.11.27.04
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 
@@ -31,6 +31,10 @@ Use an ID unique to each Companion computer, keep it the same between visits, an
 The app verifies the WebSocket, Satellite API 1.10 or later within major version 1, surface registration, and actual bitmap delivery from both the surface and a read-only button subscription. The subscription uses an absolute page location. The registered surface follows Companion’s own page, lock and button handling. See the [Bitfocus Satellite API](https://companion.free/for-developers/Satellite-API/).
 
 The operating grid uses Companion’s original bitmaps. The top-right arrow toggles full screen in both modes. During a disconnect, the app clears the artwork and disables input. Planned disconnects release held buttons before closing. An abrupt network failure can prevent a release from reaching Companion, and the app never replays button input after reconnecting.
+
+### Check button input
+
+Press and release a key, then tap the status or server name. **Last button reply** shows whether Companion accepted that input. An accepted input is a Satellite protocol reply. The page change still depends on the button action and the target configured in Companion. For a page jump on the iPhone, edit the button, use **Surface: Set to page**, and select **Current surface** as the target. Check that the destination is allowed for the In.Companion surface or its group.
 
 ## Build and test
 
