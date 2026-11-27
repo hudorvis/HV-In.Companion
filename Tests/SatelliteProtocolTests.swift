@@ -6,6 +6,7 @@ struct SatelliteProtocolTests {
         try testFraming()
         testMessages()
         testConfiguration()
+        testPhysicalKeyPresses()
         testVerification()
         try testSavedServers()
         print("Satellite protocol tests passed")
@@ -65,6 +66,17 @@ struct SatelliteProtocolTests {
             precondition(SurfaceConfiguration(host: host, port: "16623", columns: 5, rows: 3) == nil)
         }
         precondition(SurfaceConfiguration(host: "companion.local", port: "0", columns: 5, rows: 3) == nil)
+    }
+
+    static func testPhysicalKeyPresses() {
+        let grid = SurfaceConfiguration(bonjourName: "Studio", columns: 5, rows: 3)!
+        precondition(grid.keyPressCommand(deviceID: "surface", index: 0, pressed: true)
+                     == "KEY-PRESS DEVICEID=surface KEY=0/0 PRESSED=1")
+        precondition(grid.keyPressCommand(deviceID: "surface", index: 7, pressed: true)
+                     == "KEY-PRESS DEVICEID=surface KEY=1/2 PRESSED=1")
+        precondition(grid.keyPressCommand(deviceID: "surface", index: 7, pressed: false)
+                     == "KEY-PRESS DEVICEID=surface KEY=1/2 PRESSED=0")
+        precondition(grid.keyPressCommand(deviceID: "surface", index: 15, pressed: false) == nil)
     }
 
     static func testSavedServers() throws {

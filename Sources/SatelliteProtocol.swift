@@ -38,6 +38,13 @@ struct SurfaceConfiguration: Codable, Equatable {
             && label.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 }
     }
 
+    func keyPressCommand(deviceID: String, index: Int, pressed: Bool) -> String? {
+        guard (0..<(rows * columns)).contains(index) else { return nil }
+        let row = index / columns
+        let column = index % columns
+        return "KEY-PRESS DEVICEID=\(deviceID) KEY=\(row)/\(column) PRESSED=\(pressed ? 1 : 0)"
+    }
+
     func keyIndex(_ key: String) -> Int? {
         if let index = Int(key) {
             return (0..<(rows * columns)).contains(index) ? index : nil

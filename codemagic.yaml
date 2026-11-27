@@ -1,6 +1,6 @@
 workflows:
   ios-release:
-    name: In.Companion - TestFlight v26.11.27.01
+    name: In.Companion - TestFlight v26.11.27.02
     max_build_duration: 60
     instance_type: mac_mini_m2
     integrations:
@@ -33,7 +33,7 @@ workflows:
           : "${APP_STORE_APPLE_ID:?Missing numeric App Store Connect Apple ID}"
           LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
           NEXT=$(( ${LATEST:-0} + 1 ))
-          if [ "$NEXT" -lt 6 ]; then NEXT=6; fi
+          if [ "$NEXT" -lt 7 ]; then NEXT=7; fi
           agvtool new-version -all "$NEXT"
       - name: Apply signing profiles
         script: xcode-project use-profiles

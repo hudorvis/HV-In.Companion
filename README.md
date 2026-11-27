@@ -1,4 +1,4 @@
-# In.Companion v26.11.27.01
+# In.Companion v26.11.27.02
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 
@@ -7,11 +7,10 @@ Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 1. Put the iPhone or iPad on the same local network as the Companion computer. The computer can use wired Ethernet on that LAN.
 2. In Companion, open **Settings → Protocols** and enable **Button Subscriptions API**.
 3. In Companion **5.1.3 or later**, open **Settings → General**, give the installation a recognisable name, and enable **Announce Companion on the network (mDNS/Bonjour)**. For 4.3 or a version that does not advertise the short Satellite WebSocket service type, see the host announcement below.
-4. Open In.Companion and allow **Local Network** access. Go to **Settings → Connection Setup → Continue** and tap the installation under **Nearby Companion**.
-5. Wait for the connection, registration and artwork checks. If you change the layout, choose **Test Again**, then **Open Surface**.
-6. In Companion, open **Surfaces → Configured Surfaces** and select **In.Companion**. Configure the startup page and assignments in Companion. Repeat steps 1–6 once for each installation.
+4. Open In.Companion and allow **Local Network** access. Tap the connection status or server name at the top, then pick your installation under **Nearby**. The surface opens as soon as Companion sends button artwork.
+5. In Companion, open **Surfaces → Configured Surfaces** and select **In.Companion**. Configure the startup page and assignments in Companion. Repeat for each installation.
 
-On return to a network, In.Companion reconnects automatically if one saved Bonjour server is available. If several saved servers are present, open **Settings → Saved Servers** to choose. The iPhone identifies servers by the ID in their Bonjour advertisements and uses the currently advertised address and port. Each server retains its own surface setup via the iPhone's persistent Satellite ID. A saved manual address can be selected from the same list.
+On return to a network, In.Companion reconnects automatically if one saved Bonjour server is available. If several saved servers are present, tap the connection status or server name to choose. The iPhone identifies servers by the ID in their Bonjour advertisements and uses the currently advertised address and port. Each server retains its own surface setup via the iPhone's persistent Satellite ID. Any manual address saved in an earlier revision is also available in the picker. New surfaces use a 5 × 3 grid. Existing saved surfaces keep their grid.
 
 ### Announce an older Companion host
 
@@ -27,11 +26,11 @@ On a Linux host with Avahi, the equivalent is:
 avahi-publish-service "Studio Companion" _comp-sat-ws._tcp 16623 id=studio-companion
 ```
 
-Use an ID unique to each Companion computer, keep it the same between visits, and use the actual **Satellite WebSocket Listen Port**. Leave the command running while you need discovery. If an older host has no Bonjour announcement, **Manual Address** in the connection wizard accepts a hostname or IPv4 address. Manual profiles are opened by tapping them in **Saved Servers**.
+Use an ID unique to each Companion computer, keep it the same between visits, and use the actual **Satellite WebSocket Listen Port**. Leave the command running while you need discovery.
 
-Setup verifies the WebSocket, Satellite API 1.10 or later within major version 1, surface registration, and actual bitmap delivery from both the surface and a read-only button subscription. The subscription uses an absolute page location. The registered surface follows Companion’s own page, lock and button handling. See the [Bitfocus Satellite API](https://companion.free/for-developers/Satellite-API/).
+The app verifies the WebSocket, Satellite API 1.10 or later within major version 1, surface registration, and actual bitmap delivery from both the surface and a read-only button subscription. The subscription uses an absolute page location. The registered surface follows Companion’s own page, lock and button handling. See the [Bitfocus Satellite API](https://companion.free/for-developers/Satellite-API/).
 
-Settings includes connection diagnostics and a copyable protocol log. The operating grid uses Companion’s original bitmaps. During a disconnect, the app clears the artwork and disables input. Planned disconnects release held buttons before closing. An abrupt network failure can prevent a release from reaching Companion, and the app never replays button input after reconnecting.
+The operating grid uses Companion’s original bitmaps. The top-right arrow toggles full screen in both modes. During a disconnect, the app clears the artwork and disables input. Planned disconnects release held buttons before closing. An abrupt network failure can prevent a release from reaching Companion, and the app never replays button input after reconnecting.
 
 ## Build and test
 

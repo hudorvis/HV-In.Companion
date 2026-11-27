@@ -9,322 +9,308 @@ import UIKit
 
 @MainActor
 struct SurfaceView: View {
+    private static let cornerSize: CGFloat = 44
+
     @StateObject private var satellite = Satellite()
     @StateObject private var discovery = CompanionDiscovery()
     @AppStorage("savedCompanionServers") private var savedServers = Data()
-    @AppStorage("host") private var host = ""
-    @AppStorage("port") private var port = String(SurfaceConfiguration.defaultPort)
-    @AppStorage("columns") private var columns = 5
-    @AppStorage("rows") private var rows = 3
-    @AppStorage("verifiedWebSocketConfiguration") private var configured = false
+    @AppStorage("migratedCompanionServers") private var legacyServerMigrated = false
     @AppStorage("haptics") private var haptics = true
     @AppStorage("awake") private var awake = true
-    @State private var settings = false
-    @State private var launchWizard = false
-    @State private var full = false
-    @State private var started = false
-    @State private var reconnectOnForeground = true
-    @State private var activeID: String?
+    @State private var showServers = false
+    @State private var fullScreen = false
+    @State private var activeProfile: SavedCompanion?
     @State private var activeService: NearbyCompanion?
-    @AppStorage("migratedCompanionServers") private var legacyServerMigrated = false
+    @State private var autoConnect = true
     @Environment(\.scenePhase) private var phase
 
     private var profiles: [SavedCompanion] {
         (try? JSONDecoder().decode([SavedCompanion].self, from: savedServers)) ?? []
     }
 
-    private var activeProfile: SavedCompanion? { profiles.first { $0.id == activeID } }
-
     private var automaticProfile: SavedCompanion? {
         SavedCompanion.automaticMatch(in: profiles, discoveredIDs: discovery.servers.map(\.serverID))
     }
 
-    private var connectionStatus: String {
-        if activeID != nil { return satellite.stage.rawValue }
-        if profiles.isEmpty { return "Setup required" }
-        let known = Set(profiles.compactMap(\.bonjourID))
-        if discovery.servers.filter({ known.contains($0.serverID) }).count > 1 { return "Choose Companion" }
-        return "Select a server"
+    private var serverName: String {
+        activeService?.name ?? activeProfile?.configuration.host ?? "Companion"
     }
 
     var body: some View {
-        VStack(spacing: 8) {
-            if !full {
-                ZStack {
-                    VStack(spacing: 3) {
-                        (Text("In") + Text(".").foregroundColor(.yellow) + Text("Companion"))
-                            .font(.system(size: 24, weight: .semibold, design: .rounded))
-                        Capsule()
-                            .fill(LinearGradient(colors: [.yellow, .green], startPoint: .leading, endPoint: .trailing))
-                            .frame(width: 74, height: 2)
-                    }
-                    HStack {
-                        Spacer()
-                        Button {
-                            satellite.releaseAll()
-                            launchWizard = false
-                            settings = true
-                        } label: {
-                            Image(systemName: "gearshape.fill").font(.title2).frame(width: 44, height: 44)
-                        }
-                        .accessibilityLabel("Settings")
-                    }
-                }
-                HStack {
-                    Circle().fill(satellite.connected ? Color.green : Color.red).frame(width: 7, height: 7)
-                    Text(connectionStatus).lineLimit(1)
-                    Spacer()
-                    Text(activeService?.name ?? activeProfile?.configuration.host ?? "").monospacedDigit().lineLimit(1)
-                    Button {
-                        satellite.releaseAll()
-                        full = true
-                    } label: {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                    }
-                    .accessibilityLabel("Full screen")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-
+        VStack(spacing: fullScreen ? 0 : 8) {
+            if !fullScreen { header }
             GeometryReader { geometry in
-                let columnCount = activeProfile?.configuration.columns ?? min(8, max(1, columns))
-                let rowCount = activeProfile?.configuration.rows ?? min(6, max(1, rows))
-                let gap: CGFloat = 7
-                let width = (geometry.size.width - CGFloat(columnCount - 1) * gap) / CGFloat(columnCount)
-                let height = (geometry.size.height - CGFloat(rowCount - 1) * gap) / CGFloat(rowCount)
-                let side = max(1, min(width, height))
-                VStack(spacing: gap) {
-                    ForEach(0..<rowCount, id: \.self) { row in
-                        HStack(spacing: gap) {
-                            ForEach(0..<columnCount, id: \.self) { column in
-                                let index = row * columnCount + column
-                                let image = satellite.connected && !satellite.usesTestConfiguration ? satellite.images[index] : nil
-                                DeckKey(image: image, enabled: image != nil && !settings && phase == .active,
+                let columns = activeProfile?.configuration.columns ?? 5
+                let rows = activeProfile?.configuration.rows ?? 3
+                let grid = DeckLayout(size: geometry.size, columns: columns, rows: rows,
+                                      corner: fullScreen ? Self.cornerSize : 0)
+                VStack(spacing: DeckLayout.gap) {
+                    ForEach(0..<rows, id: \.self) { row in
+                        HStack(spacing: DeckLayout.gap) {
+                            ForEach(0..<columns, id: \.self) { column in
+                                let index = row * columns + column
+                                DeckKey(image: satellite.images[index],
+                                        enabled: satellite.connected && !showServers && phase == .active,
                                         down: satellite.held.contains(index) || satellite.remoteHeld.contains(index),
-                                        haptics: haptics) { pressed in
-                                    if !pressed || (!settings && phase == .active) { satellite.press(index, pressed) }
+                                        haptics: haptics, title: "Companion key \(row + 1), \(column + 1)") { down in
+                                    satellite.press(index, down)
                                 }
-                                .frame(width: side, height: side)
+                                .frame(width: grid.side, height: grid.side)
                             }
                         }
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            if full {
-                Button {
-                    satellite.releaseAll()
-                    full = false
-                } label: {
-                    Image(systemName: "arrow.down.right.and.arrow.up.left").frame(width: 44, height: 30)
-                }
-                .accessibilityLabel("Exit full screen")
+                .position(x: grid.center.x, y: grid.center.y)
             }
         }
-        .padding(12)
+        .padding(fullScreen ? 4 : 12)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                satellite.releaseAll()
+                fullScreen.toggle()
+            } label: {
+                Image(systemName: fullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                    .frame(width: Self.cornerSize, height: Self.cornerSize)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(fullScreen ? "Exit full screen" : "Full screen")
+            .padding(fullScreen ? 4 : 12)
+        }
         .background(Color(white: 0.035).ignoresSafeArea())
-        .sheet(isPresented: $settings, onDismiss: cancelTest) {
-            CompanionSettings(
-                satellite: satellite, discovery: discovery, haptics: $haptics, awake: $awake,
-                showWizard: launchWizard, host: host,
-                port: !configured && port == "16622" ? String(SurfaceConfiguration.defaultPort) : port,
-                columns: activeProfile?.configuration.columns ?? columns,
-                rows: activeProfile?.configuration.rows ?? rows,
-                profiles: profiles, activeID: activeID,
-                test: testConfiguration, save: saveConfiguration, cancelTest: cancelTest,
-                select: selectSaved, remove: removeProfile,
-                connect: connectSaved, disconnect: disconnectSaved,
-                canConnect: activeProfile != nil || automaticProfile != nil
-            )
-        }
+        .sheet(isPresented: $showServers) { serverPicker }
         .task(id: phase == .active ? discovery.servers : []) {
             do { try await Task.sleep(for: .milliseconds(1200)) } catch { return }
             reconcileServers()
         }
         .onChange(of: satellite.stage) { _, stage in
+            if stage == .connected, let activeProfile {
+                save(activeProfile)
+            }
             if stage == .reconnecting || stage == .failed { reconcileServers() }
         }
-        .onChange(of: phase) { _, newPhase in
-            updateIdleTimer()
-            switch newPhase {
+        .onChange(of: phase) { _, phase in
+            UIApplication.shared.isIdleTimerDisabled = phase == .active && awake
+            switch phase {
             case .active:
                 discovery.start()
             case .inactive:
                 satellite.releaseAll()
             case .background:
                 discovery.stop()
-                satellite.disconnect()
-                clearSelection()
+                disconnect()
             @unknown default:
                 break
             }
         }
-        .onChange(of: awake) { _, _ in updateIdleTimer() }
         .onAppear {
-            updateIdleTimer()
-            guard !started else { return }
-            started = true
+            UIApplication.shared.isIdleTimerDisabled = phase == .active && awake
             migrateLegacyServer()
             discovery.start()
-            if profiles.isEmpty {
-                launchWizard = true
-                settings = true
-            }
         }
         .onDisappear {
             discovery.stop()
-            satellite.disconnect()
+            disconnect()
             UIApplication.shared.isIdleTimerDisabled = false
         }
     }
 
-    private func updateIdleTimer() {
-        UIApplication.shared.isIdleTimerDisabled = phase == .active && awake
+    private var header: some View {
+        VStack(spacing: 8) {
+            VStack(spacing: 3) {
+                (Text("In") + Text(".").foregroundColor(.yellow) + Text("Companion"))
+                    .font(.system(size: 24, weight: .semibold, design: .rounded))
+                Capsule()
+                    .fill(LinearGradient(colors: [.yellow, .green], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: 74, height: 2)
+            }
+            .frame(height: Self.cornerSize)
+            .padding(.horizontal, Self.cornerSize)
+
+            HStack {
+                Button(action: openServers) {
+                    HStack(spacing: 6) {
+                        Circle().fill(satellite.connected ? Color.green : Color.red).frame(width: 7, height: 7)
+                        Text(satellite.stage.rawValue).lineLimit(1)
+                    }
+                    .frame(minHeight: 34)
+                    .contentShape(Rectangle())
+                }
+                Spacer(minLength: 12)
+                Button(action: openServers) {
+                    HStack(spacing: 5) {
+                        Text(serverName).lineLimit(1)
+                        Image(systemName: "chevron.down").font(.caption2)
+                    }
+                    .frame(minHeight: 34)
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Choose Companion server, \(serverName)")
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
     }
 
-    private func migrateLegacyServer() {
-        guard !legacyServerMigrated else { return }
-        legacyServerMigrated = true
-        guard savedServers.isEmpty, configured,
-              let configuration = SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows)
-        else { return }
-        storeProfiles([SavedCompanion(configuration: configuration, bonjourID: nil)])
+    private var serverPicker: some View {
+        NavigationStack {
+            List {
+                Section("Nearby") {
+                    if discovery.servers.isEmpty {
+                        Text(discovery.status).foregroundStyle(.secondary)
+                    }
+                    ForEach(discovery.servers) { server in
+                        Button {
+                            select(server)
+                        } label: {
+                            HStack {
+                                Text(server.name)
+                                Spacer()
+                                if activeService == server {
+                                    if satellite.connected { Image(systemName: "checkmark") }
+                                    else { Text(satellite.stage.rawValue).font(.caption).foregroundStyle(.secondary) }
+                                }
+                            }
+                        }
+                        .disabled(discovery.servers.filter { $0.serverID == server.serverID }.count != 1)
+                    }
+                }
+                let manual = profiles.filter { $0.bonjourID == nil }
+                if !manual.isEmpty {
+                    Section("Saved addresses") {
+                        ForEach(manual) { server in
+                            Button(server.configuration.host) { select(server) }
+                        }
+                    }
+                }
+                if let error = satellite.error {
+                    Text(error).foregroundStyle(.secondary)
+                }
+                if activeProfile != nil {
+                    Button("Disconnect", role: .destructive) {
+                        autoConnect = false
+                        disconnect()
+                        showServers = false
+                    }
+                }
+            }
+            .navigationTitle("Companion Servers")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { showServers = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
     }
 
-    private func storeProfiles(_ profiles: [SavedCompanion]) {
-        if let encoded = try? JSONEncoder().encode(profiles) { savedServers = encoded }
+    private func openServers() {
+        satellite.releaseAll()
+        discovery.start()
+        showServers = true
     }
 
     private func nearbyServer(for profile: SavedCompanion) -> NearbyCompanion? {
-        guard let id = profile.bonjourID else { return nil }
-        let matches = discovery.servers.filter { $0.serverID == id }
-        guard matches.count == 1 else { return nil }
-        return matches.first
+        let matches = discovery.servers.filter { $0.serverID == profile.bonjourID }
+        return matches.count == 1 ? matches.first : nil
     }
 
     private func reconcileServers() {
-        guard phase == .active, reconnectOnForeground, !satellite.usesTestConfiguration else { return }
-        if let activeProfile {
-            if activeProfile.bonjourID != nil {
-                if let service = nearbyServer(for: activeProfile) {
-                    if service != activeService { activate(activeProfile) }
+        guard phase == .active, autoConnect else { return }
+        if let profile = activeProfile {
+            if profile.bonjourID != nil {
+                if let service = nearbyServer(for: profile) {
+                    if service != activeService { connect(profile, service: service) }
                     return
                 }
             } else {
                 guard automaticProfile != nil,
                       satellite.stage == .reconnecting || satellite.stage == .failed else { return }
             }
-            satellite.disconnect()
-            clearSelection()
+            disconnect()
         }
-        if let profile = automaticProfile { activate(profile) }
+        if let profile = automaticProfile, let service = nearbyServer(for: profile) {
+            connect(profile, service: service)
+        }
     }
 
-    private func activate(_ profile: SavedCompanion) {
-        let service = nearbyServer(for: profile)
-        guard profile.bonjourID == nil || service != nil else { return }
-        activeID = profile.id
+    private func select(_ service: NearbyCompanion) {
+        let saved = profiles.first { $0.bonjourID == service.serverID }
+        guard let configuration = SurfaceConfiguration(
+            bonjourName: service.name, columns: saved?.configuration.columns ?? 5, rows: saved?.configuration.rows ?? 3
+        ) else { return }
+        select(SavedCompanion(configuration: configuration, bonjourID: service.serverID), service: service)
+    }
+
+    private func select(_ profile: SavedCompanion, service: NearbyCompanion? = nil) {
+        autoConnect = true
+        if profile != activeProfile || service != activeService || !satellite.connected {
+            connect(profile, service: service)
+        }
+        showServers = false
+    }
+
+    private func connect(_ profile: SavedCompanion, service: NearbyCompanion?) {
+        activeProfile = profile
         activeService = service
         satellite.connect(profile.configuration, endpoint: service?.endpoint)
     }
 
-    private func selectSaved(_ profile: SavedCompanion) {
-        reconnectOnForeground = true
-        activate(profile)
-        settings = false
-    }
-
-    private func connectSaved() {
-        reconnectOnForeground = true
-        discovery.start()
-        if let profile = activeProfile ?? automaticProfile { activate(profile) }
-    }
-
-    private func disconnectSaved() {
-        reconnectOnForeground = false
+    private func disconnect() {
         satellite.disconnect()
-    }
-
-    private func removeProfile(_ profile: SavedCompanion) {
-        if activeID == profile.id {
-            satellite.disconnect()
-            clearSelection()
-        }
-        storeProfiles(profiles.filter { $0.id != profile.id })
-        reconcileServers()
-    }
-
-    private func testConfiguration(_ configuration: SurfaceConfiguration, _ service: NearbyCompanion?) {
-        satellite.connect(configuration, endpoint: service?.endpoint, testing: true)
-    }
-
-    private func saveConfiguration(_ configuration: SurfaceConfiguration, _ service: NearbyCompanion?) {
-        guard satellite.connected, satellite.usesTestConfiguration, satellite.configuration == configuration else { return }
-        let profile = SavedCompanion(configuration: configuration, bonjourID: service?.serverID)
-        if let service, nearbyServer(for: profile) != service { return }
-        storeProfiles(profiles.filter { $0.id != profile.id } + [profile])
-        activeID = profile.id
-        activeService = service
-        reconnectOnForeground = true
-        satellite.acceptTest()
-        settings = false
-    }
-
-    private func cancelTest() {
-        guard satellite.usesTestConfiguration else { return }
-        satellite.discardTest()
-        guard phase != .background, reconnectOnForeground else { return }
-        if let profile = activeProfile, profile.bonjourID == nil || nearbyServer(for: profile) != nil {
-            activate(profile)
-        } else {
-            clearSelection()
-            reconcileServers()
-        }
-    }
-
-    private func clearSelection() {
-        activeID = nil
+        activeProfile = nil
         activeService = nil
     }
-}
 
-struct DeckKey: View {
-    let image: UIImage?
-    let enabled: Bool
-    let down: Bool
-    let haptics: Bool
-    let action: (Bool) -> Void
-    var body: some View {
-        GeometryReader { geo in
-            let size = min(geo.size.width,geo.size.height)
-            let radius = size*0.17
-            ZStack {
-                RoundedRectangle(cornerRadius: radius).fill(LinearGradient(colors:[Color(white:0.27),.black],startPoint:.top,endPoint:.bottom))
-                ZStack {
-                    RoundedRectangle(cornerRadius: radius*0.8).fill(.black)
-                    if let image { Image(uiImage:image).resizable().interpolation(.high).aspectRatio(contentMode:.fit) }
-                }.padding(size*0.065)
-                RoundedRectangle(cornerRadius:radius).strokeBorder(LinearGradient(colors:[.white.opacity(0.28),.white.opacity(0.04)],startPoint:.top,endPoint:.bottom),lineWidth:1)
-            }.shadow(color:.black.opacity(0.9),radius:3,y:3).scaleEffect(down ? 0.94 : 1)
-             .overlay { TouchKey(enabled:enabled) { value in if value && haptics { UIImpactFeedbackGenerator(style:.light).impactOccurred() }; action(value) } }
-        }.accessibilityLabel("Companion key").accessibilityAddTraits(.isButton).accessibilityAction { if enabled { action(true); action(false) } }
+    private func save(_ profile: SavedCompanion) {
+        let previous = profiles
+        guard !previous.contains(profile) else { return }
+        if let data = try? JSONEncoder().encode(previous.filter { $0.id != profile.id } + [profile]) {
+            savedServers = data
+        }
+    }
+
+    private func migrateLegacyServer() {
+        guard !legacyServerMigrated else { return }
+        legacyServerMigrated = true
+        let defaults = UserDefaults.standard
+        guard profiles.isEmpty, defaults.bool(forKey: "verifiedWebSocketConfiguration"),
+              let host = defaults.string(forKey: "host"),
+              let port = defaults.string(forKey: "port"),
+              let configuration = SurfaceConfiguration(host: host, port: port,
+                                                       columns: defaults.object(forKey: "columns") as? Int ?? 5,
+                                                       rows: defaults.object(forKey: "rows") as? Int ?? 3)
+        else { return }
+        save(SavedCompanion(configuration: configuration, bonjourID: nil))
     }
 }
 
-struct TouchKey: UIViewRepresentable {
-    var enabled: Bool
-    var action: (Bool) -> Void
-    func makeUIView(context: Context) -> KeyTouchView { KeyTouchView() }
-    func updateUIView(_ view: KeyTouchView, context: Context) { view.action = action; if !enabled { view.finish() }; view.isUserInteractionEnabled = enabled }
-    static func dismantleUIView(_ view: KeyTouchView, coordinator: ()) { view.finish() }
-}
-final class KeyTouchView: UIView {
-    var action: ((Bool)->Void)?
-    private var active = false
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { guard !active else { return }; active = true; action?(true) }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { finish() }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { finish() }
-    func finish() { guard active else { return }; active = false; action?(false) }
+private struct DeckLayout {
+    static let gap: CGFloat = 7
+    let side: CGFloat
+    let center: CGPoint
+
+    init(size: CGSize, columns: Int, rows: Int, corner: CGFloat) {
+        func keySize(in area: CGRect) -> CGFloat {
+            max(1, min((area.width - CGFloat(columns - 1) * Self.gap) / CGFloat(columns),
+                       (area.height - CGFloat(rows - 1) * Self.gap) / CGFloat(rows)))
+        }
+
+        let bounds = CGRect(origin: .zero, size: size)
+        let initialSide = keySize(in: bounds)
+        let width = CGFloat(columns) * initialSide + CGFloat(columns - 1) * Self.gap
+        let height = CGFloat(rows) * initialSide + CGFloat(rows - 1) * Self.gap
+        let deck = CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
+        let toggle = CGRect(x: bounds.maxX - corner, y: 0, width: corner, height: corner)
+        var area = bounds
+        if corner > 0, deck.intersects(toggle) {
+            let below = CGRect(x: 0, y: corner, width: size.width, height: max(0, size.height - corner))
+            let left = CGRect(x: 0, y: 0, width: max(0, size.width - corner), height: size.height)
+            area = keySize(in: below) >= keySize(in: left) ? below : left
+        }
+        side = keySize(in: area)
+        center = CGPoint(x: area.midX, y: area.midY)
+    }
 }

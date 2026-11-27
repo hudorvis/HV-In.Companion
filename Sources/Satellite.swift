@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import Network
+import OSLog
 import UIKit
 
 @MainActor
@@ -20,25 +21,15 @@ final class Satellite: ObservableObject {
     static let surfaceName = "In.Companion"
     private static let probeID = "setup-artwork"
     private static let bitmapSize = 96
+    private static let logger = Logger(subsystem: "au.h-v.in.companion", category: "Satellite")
 
     @Published private(set) var stage: Stage = .disconnected
-    @Published private(set) var verification = SatelliteVerification()
     @Published private(set) var images: [Int: UIImage] = [:]
     @Published private(set) var held: Set<Int> = []
     @Published private(set) var remoteHeld: Set<Int> = []
-    @Published private(set) var configuration: SurfaceConfiguration?
-    @Published private(set) var resolvedHost: String?
-    @Published private(set) var resolvedPort: UInt16?
-    @Published private(set) var companionVersion: String?
-    @Published private(set) var apiVersion: String?
-    @Published private(set) var lastSuccess = UserDefaults.standard.object(forKey: "lastSatelliteConnection") as? Date
-    @Published private(set) var imageCount = 0
-    @Published private(set) var log: [String] = []
     @Published private(set) var error: String?
 
     var connected: Bool { stage == .connected }
-    var usesTestConfiguration: Bool { temporary }
-    var mayDisconnect: Bool { socket != nil || retryTask != nil || wantsConnection }
 
     let surfaceID: String = {
         let key = "surfaceID"
@@ -56,7 +47,9 @@ final class Satellite: ObservableObject {
     private var heartbeatTask: Task<Void, Never>?
     private var retryTask: Task<Void, Never>?
     private var wantsConnection = false
-    private var temporary = false
+    private var verification = SatelliteVerification()
+    private var configuration: SurfaceConfiguration?
+    private var imageCount = 0
     private var retryDelay = 1
     private var lastPong = ContinuousClock.now
     private var probesSent = 0
@@ -65,29 +58,16 @@ final class Satellite: ObservableObject {
     private var firstArtworkLocation: String?
     private var bitmapFormat = ""
 
-    func connect(_ configuration: SurfaceConfiguration, endpoint: NWEndpoint? = nil, testing: Bool = false) {
+    func connect(_ configuration: SurfaceConfiguration, endpoint: NWEndpoint? = nil) {
         disconnect()
         self.configuration = configuration
         discoveryEndpoint = endpoint
-        temporary = testing
         wantsConnection = true
         retryDelay = 1
         error = nil
         resetVerification()
         setStage(.opening)
         if drainingSocket == nil { start() }
-    }
-
-    func acceptTest() {
-        guard connected else { return }
-        temporary = false
-        recordSuccess()
-    }
-
-    func discardTest() {
-        guard temporary else { return }
-        disconnect()
-        temporary = false
     }
 
     func disconnect() {
@@ -118,48 +98,22 @@ final class Satellite: ObservableObject {
         setStage(.disconnected)
     }
 
-    func press(_ index: Int, _ down: Bool) {
-        guard connected, let socket else { return }
+    @discardableResult
+    func press(_ index: Int, _ down: Bool) -> Bool {
+        guard connected, let socket,
+              let command = configuration?.keyPressCommand(deviceID: surfaceID, index: index, pressed: down)
+        else { return false }
         if down {
-            guard images[index] != nil, held.insert(index).inserted else { return }
+            guard images[index] != nil, held.insert(index).inserted else { return false }
         } else {
-            guard held.remove(index) != nil else { return }
+            guard held.remove(index) != nil else { return false }
         }
-        transmit("KEY-PRESS DEVICEID=\(surfaceID) KEY=\(index) PRESSED=\(down ? 1 : 0)", on: socket)
+        transmit(command, on: socket)
+        return true
     }
 
     func releaseAll() {
         for index in held.sorted() { press(index, false) }
-    }
-
-    func clearDiagnostics() {
-        log.removeAll()
-        imageCount = 0
-        error = nil
-    }
-
-    var diagnosticHost: String { resolvedHost ?? configuration?.host ?? "—" }
-    var diagnosticPort: String {
-        if let resolvedPort { return String(resolvedPort) }
-        if discoveryEndpoint != nil { return connected ? "Bonjour service port" : "Resolved by Bonjour" }
-        return configuration.map { String($0.port) } ?? "—"
-    }
-
-    var diagnostics: String {
-        let success = lastSuccess?.formatted(date: .abbreviated, time: .standard) ?? "—"
-        return [
-            "In.Companion v26.11.27.01",
-            "Server: \(diagnosticHost)",
-            "Port: \(diagnosticPort)",
-            "Protocol: Satellite WebSocket",
-            "Status: \(stage.rawValue)",
-            "Companion: \(companionVersion ?? "—")",
-            "API: \(apiVersion ?? "—")",
-            "Surface: \(Self.surfaceName) (\(surfaceID))",
-            "Last successful connection: \(success)",
-            "Button images received: \(imageCount)",
-            "Last error: \(error ?? "—")"
-        ].joined(separator: "\n") + "\n\n" + log.joined(separator: "\n")
     }
 
     private func start() {
@@ -192,11 +146,6 @@ final class Satellite: ObservableObject {
         switch state {
         case .ready:
             guard !verification.webSocket else { return }
-            if let endpoint = connection.currentPath?.remoteEndpoint,
-               case let .hostPort(host, port) = endpoint {
-                resolvedHost = String(describing: host)
-                resolvedPort = port.rawValue
-            }
             verification.webSocket = true
             setStage(.greeting)
             armTimeout(on: connection, message: "WebSocket opened but Companion did not send its API greeting.", seconds: 5)
@@ -279,8 +228,7 @@ final class Satellite: ObservableObject {
                 lastPong = .now
             }
         case "BEGIN" where stage == .greeting:
-            companionVersion = message["COMPANIONVERSION"]
-            apiVersion = message["APIVERSION"]
+            let apiVersion = message["APIVERSION"]
             guard let apiVersion, SatelliteMessage.supportsSubscriptions(apiVersion: apiVersion) else {
                 fail("Companion 4.3 or later is required. Satellite API reported \(apiVersion ?? "no version").", retry: false)
                 return
@@ -362,13 +310,6 @@ final class Satellite: ObservableObject {
         retryDelay = 1
         error = nil
         setStage(.connected)
-        if !temporary { recordSuccess() }
-    }
-
-    private func recordSuccess() {
-        let now = Date()
-        lastSuccess = now
-        UserDefaults.standard.set(now, forKey: "lastSatelliteConnection")
     }
 
     private func transmit(_ line: String, on connection: NWConnection, completion: ((NWError?) -> Void)? = nil) {
@@ -423,13 +364,13 @@ final class Satellite: ObservableObject {
 
     private func fail(_ detail: String, retry: Bool = true) {
         error = detail
-        appendLog("Error · " + detail)
+        Self.logger.error("\(detail, privacy: .private)")
         let previous = socket
         socket = nil
         previous?.cancel()
         stopTimers()
         clearSurface()
-        guard wantsConnection, !temporary, retry else {
+        guard wantsConnection, retry else {
             wantsConnection = false
             setStage(.failed)
             return
@@ -461,10 +402,6 @@ final class Satellite: ObservableObject {
 
     private func resetVerification() {
         verification = SatelliteVerification()
-        companionVersion = nil
-        apiVersion = nil
-        resolvedHost = nil
-        resolvedPort = nil
         probeStarted = false
         firstArtworkLocation = nil
     }
@@ -482,8 +419,7 @@ final class Satellite: ObservableObject {
     }
 
     private func appendLog(_ message: String) {
-        log.append("\(Date().formatted(date: .omitted, time: .standard))  \(message)")
-        if log.count > 160 { log.removeFirst(log.count - 160) }
+        Self.logger.debug("\(message, privacy: .private)")
     }
 
     private func describe(_ error: NWError) -> String { "\(error.localizedDescription) [\(error)]" }
