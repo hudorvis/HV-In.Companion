@@ -9,7 +9,7 @@ struct DeckKey: UIViewRepresentable {
     let title: String
     let action: (Bool) -> Bool
 
-    func makeUIView(context: Context) -> DeckKeyControl { DeckKeyControl() }
+    func makeUIView(context: Context) -> DeckKeyControl { DeckKeyControl(frame: .zero) }
 
     func updateUIView(_ view: DeckKeyControl, context: Context) {
         view.update(image: image, enabled: enabled && image != nil, down: down,
@@ -26,9 +26,10 @@ final class DeckKeyControl: UIControl {
     private var haptics = true
     private var action: ((Bool) -> Bool)?
 
-    init() {
-        super.init(frame: .zero)
+    override init(frame: CGRect) {
+        super.init(frame: frame)
         isAccessibilityElement = true
+        isExclusiveTouch = false
         face.isUserInteractionEnabled = false
         face.layer.shadowColor = UIColor.black.cgColor
         face.layer.shadowOffset = CGSize(width: 0, height: 3)
@@ -43,7 +44,9 @@ final class DeckKeyControl: UIControl {
         addSubview(face)
     }
 
-    required init?(coder: NSCoder) { nil }
+    required init?(coder: NSCoder) {
+        fatalError("DeckKeyControl is created programmatically")
+    }
 
     override func layoutSubviews() {
         super.layoutSubviews()
