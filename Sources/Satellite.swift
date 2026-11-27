@@ -27,6 +27,8 @@ final class Satellite: ObservableObject {
     @Published private(set) var held: Set<Int> = []
     @Published private(set) var remoteHeld: Set<Int> = []
     @Published private(set) var configuration: SurfaceConfiguration?
+    @Published private(set) var resolvedHost: String?
+    @Published private(set) var resolvedPort: UInt16?
     @Published private(set) var companionVersion: String?
     @Published private(set) var apiVersion: String?
     @Published private(set) var lastSuccess = UserDefaults.standard.object(forKey: "lastSatelliteConnection") as? Date
@@ -46,6 +48,7 @@ final class Satellite: ObservableObject {
         return value
     }()
 
+    private var discoveryEndpoint: NWEndpoint?
     private var socket: NWConnection?
     private var drainingSocket: NWConnection?
     private var framing = SatelliteFraming()
@@ -62,9 +65,10 @@ final class Satellite: ObservableObject {
     private var firstArtworkLocation: String?
     private var bitmapFormat = ""
 
-    func connect(_ configuration: SurfaceConfiguration, testing: Bool = false) {
+    func connect(_ configuration: SurfaceConfiguration, endpoint: NWEndpoint? = nil, testing: Bool = false) {
         disconnect()
         self.configuration = configuration
+        discoveryEndpoint = endpoint
         temporary = testing
         wantsConnection = true
         retryDelay = 1
@@ -134,12 +138,19 @@ final class Satellite: ObservableObject {
         error = nil
     }
 
+    var diagnosticHost: String { resolvedHost ?? configuration?.host ?? "—" }
+    var diagnosticPort: String {
+        if let resolvedPort { return String(resolvedPort) }
+        if discoveryEndpoint != nil { return connected ? "Bonjour service port" : "Resolved by Bonjour" }
+        return configuration.map { String($0.port) } ?? "—"
+    }
+
     var diagnostics: String {
         let success = lastSuccess?.formatted(date: .abbreviated, time: .standard) ?? "—"
         return [
-            "In.Companion v26.11.26.05",
-            "Server: \(configuration?.host ?? "—")",
-            "Port: \(configuration.map { String($0.port) } ?? "—")",
+            "In.Companion v26.11.27.01",
+            "Server: \(diagnosticHost)",
+            "Port: \(diagnosticPort)",
             "Protocol: Satellite WebSocket",
             "Status: \(stage.rawValue)",
             "Companion: \(companionVersion ?? "—")",
@@ -163,7 +174,8 @@ final class Satellite: ObservableObject {
         webSocket.autoReplyPing = true
         webSocket.maximumMessageSize = SatelliteFraming.limit
         parameters.defaultProtocolStack.applicationProtocols.insert(webSocket, at: 0)
-        let connection = NWConnection(host: NWEndpoint.Host(configuration.host), port: port, using: parameters)
+        let endpoint = discoveryEndpoint ?? .hostPort(host: NWEndpoint.Host(configuration.host), port: port)
+        let connection = NWConnection(to: endpoint, using: parameters)
         socket = connection
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             DispatchQueue.main.async {
@@ -179,13 +191,23 @@ final class Satellite: ObservableObject {
     private func handleState(_ state: NWConnection.State, on connection: NWConnection) {
         switch state {
         case .ready:
+            guard !verification.webSocket else { return }
+            if let endpoint = connection.currentPath?.remoteEndpoint,
+               case let .hostPort(host, port) = endpoint {
+                resolvedHost = String(describing: host)
+                resolvedPort = port.rawValue
+            }
             verification.webSocket = true
             setStage(.greeting)
             armTimeout(on: connection, message: "WebSocket opened but Companion did not send its API greeting.", seconds: 5)
             startHeartbeat(on: connection)
             receive(on: connection)
         case .waiting(let networkError):
-            appendLog("WebSocket waiting · \(describe(networkError))")
+            if verification.webSocket {
+                fail("WebSocket lost its network path: \(describe(networkError))")
+            } else {
+                appendLog("WebSocket waiting · \(describe(networkError))")
+            }
         case .failed(let networkError):
             let localDenied = connection.currentPath?.unsatisfiedReason == .localNetworkDenied
             fail(localDenied
@@ -441,6 +463,8 @@ final class Satellite: ObservableObject {
         verification = SatelliteVerification()
         companionVersion = nil
         apiVersion = nil
+        resolvedHost = nil
+        resolvedPort = nil
         probeStarted = false
         firstArtworkLocation = nil
     }

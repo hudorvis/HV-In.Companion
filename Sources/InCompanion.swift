@@ -10,6 +10,8 @@ import UIKit
 @MainActor
 struct SurfaceView: View {
     @StateObject private var satellite = Satellite()
+    @StateObject private var discovery = CompanionDiscovery()
+    @AppStorage("savedCompanionServers") private var savedServers = Data()
     @AppStorage("host") private var host = ""
     @AppStorage("port") private var port = String(SurfaceConfiguration.defaultPort)
     @AppStorage("columns") private var columns = 5
@@ -22,12 +24,27 @@ struct SurfaceView: View {
     @State private var full = false
     @State private var started = false
     @State private var reconnectOnForeground = true
-    @State private var restartAfterTest = false
+    @State private var activeID: String?
+    @State private var activeService: NearbyCompanion?
+    @AppStorage("migratedCompanionServers") private var legacyServerMigrated = false
     @Environment(\.scenePhase) private var phase
 
-    private var savedConfiguration: SurfaceConfiguration? {
-        guard configured else { return nil }
-        return SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows)
+    private var profiles: [SavedCompanion] {
+        (try? JSONDecoder().decode([SavedCompanion].self, from: savedServers)) ?? []
+    }
+
+    private var activeProfile: SavedCompanion? { profiles.first { $0.id == activeID } }
+
+    private var automaticProfile: SavedCompanion? {
+        SavedCompanion.automaticMatch(in: profiles, discoveredIDs: discovery.servers.map(\.serverID))
+    }
+
+    private var connectionStatus: String {
+        if activeID != nil { return satellite.stage.rawValue }
+        if profiles.isEmpty { return "Setup required" }
+        let known = Set(profiles.compactMap(\.bonjourID))
+        if discovery.servers.filter({ known.contains($0.serverID) }).count > 1 { return "Choose Companion" }
+        return "Select a server"
     }
 
     var body: some View {
@@ -55,9 +72,9 @@ struct SurfaceView: View {
                 }
                 HStack {
                     Circle().fill(satellite.connected ? Color.green : Color.red).frame(width: 7, height: 7)
-                    Text(savedConfiguration == nil ? "Setup required" : satellite.stage.rawValue)
+                    Text(connectionStatus).lineLimit(1)
                     Spacer()
-                    Text(savedConfiguration?.host ?? "").monospacedDigit().lineLimit(1)
+                    Text(activeService?.name ?? activeProfile?.configuration.host ?? "").monospacedDigit().lineLimit(1)
                     Button {
                         satellite.releaseAll()
                         full = true
@@ -71,8 +88,8 @@ struct SurfaceView: View {
             }
 
             GeometryReader { geometry in
-                let columnCount = min(8, max(1, columns))
-                let rowCount = min(6, max(1, rows))
+                let columnCount = activeProfile?.configuration.columns ?? min(8, max(1, columns))
+                let rowCount = activeProfile?.configuration.rows ?? min(6, max(1, rows))
                 let gap: CGFloat = 7
                 let width = (geometry.size.width - CGFloat(columnCount - 1) * gap) / CGFloat(columnCount)
                 let height = (geometry.size.height - CGFloat(rowCount - 1) * gap) / CGFloat(rowCount)
@@ -110,24 +127,37 @@ struct SurfaceView: View {
         .background(Color(white: 0.035).ignoresSafeArea())
         .sheet(isPresented: $settings, onDismiss: cancelTest) {
             CompanionSettings(
-                satellite: satellite, haptics: $haptics, awake: $awake,
+                satellite: satellite, discovery: discovery, haptics: $haptics, awake: $awake,
                 showWizard: launchWizard, host: host,
                 port: !configured && port == "16622" ? String(SurfaceConfiguration.defaultPort) : port,
-                columns: columns, rows: rows,
+                columns: activeProfile?.configuration.columns ?? columns,
+                rows: activeProfile?.configuration.rows ?? rows,
+                profiles: profiles, activeID: activeID,
                 test: testConfiguration, save: saveConfiguration, cancelTest: cancelTest,
+                select: selectSaved, remove: removeProfile,
                 connect: connectSaved, disconnect: disconnectSaved,
-                canConnect: savedConfiguration != nil
+                canConnect: activeProfile != nil || automaticProfile != nil
             )
+        }
+        .task(id: discovery.servers) {
+            do { try await Task.sleep(for: .milliseconds(1200)) } catch { return }
+            reconcileServers()
+        }
+        .onChange(of: satellite.stage) { _, stage in
+            if stage == .reconnecting || stage == .failed { reconcileServers() }
         }
         .onChange(of: phase) { _, newPhase in
             updateIdleTimer()
             switch newPhase {
             case .active:
-                if reconnectOnForeground && !satellite.usesTestConfiguration && !satellite.mayDisconnect { resumeSaved() }
+                discovery.start()
+                reconcileServers()
             case .inactive:
                 satellite.releaseAll()
             case .background:
+                discovery.stop()
                 satellite.disconnect()
+                clearSelection()
             @unknown default:
                 break
             }
@@ -137,14 +167,15 @@ struct SurfaceView: View {
             updateIdleTimer()
             guard !started else { return }
             started = true
-            if savedConfiguration == nil {
+            migrateLegacyServer()
+            discovery.start()
+            if profiles.isEmpty {
                 launchWizard = true
                 settings = true
-            } else {
-                resumeSaved()
             }
         }
         .onDisappear {
+            discovery.stop()
             satellite.disconnect()
             UIApplication.shared.isIdleTimerDisabled = false
         }
@@ -154,13 +185,62 @@ struct SurfaceView: View {
         UIApplication.shared.isIdleTimerDisabled = phase == .active && awake
     }
 
-    private func resumeSaved() {
-        if let savedConfiguration { satellite.connect(savedConfiguration) }
+    private func migrateLegacyServer() {
+        guard !legacyServerMigrated else { return }
+        legacyServerMigrated = true
+        guard savedServers.isEmpty, configured,
+              let configuration = SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows)
+        else { return }
+        storeProfiles([SavedCompanion(configuration: configuration, bonjourID: nil)])
+    }
+
+    private func storeProfiles(_ profiles: [SavedCompanion]) {
+        if let encoded = try? JSONEncoder().encode(profiles) { savedServers = encoded }
+    }
+
+    private func nearbyServer(for profile: SavedCompanion) -> NearbyCompanion? {
+        guard let id = profile.bonjourID else { return nil }
+        let matches = discovery.servers.filter { $0.serverID == id }
+        guard matches.count == 1 else { return nil }
+        return matches.first
+    }
+
+    private func reconcileServers() {
+        guard phase == .active, reconnectOnForeground, !satellite.usesTestConfiguration else { return }
+        if let activeProfile {
+            if activeProfile.bonjourID != nil {
+                if let service = nearbyServer(for: activeProfile) {
+                    if service != activeService { activate(activeProfile) }
+                    return
+                }
+            } else {
+                guard automaticProfile != nil,
+                      satellite.stage == .reconnecting || satellite.stage == .failed else { return }
+            }
+            satellite.disconnect()
+            clearSelection()
+        }
+        if let profile = automaticProfile { activate(profile) }
+    }
+
+    private func activate(_ profile: SavedCompanion) {
+        let service = nearbyServer(for: profile)
+        guard profile.bonjourID == nil || service != nil else { return }
+        activeID = profile.id
+        activeService = service
+        satellite.connect(profile.configuration, endpoint: service?.endpoint)
+    }
+
+    private func selectSaved(_ profile: SavedCompanion) {
+        reconnectOnForeground = true
+        activate(profile)
+        settings = false
     }
 
     private func connectSaved() {
         reconnectOnForeground = true
-        resumeSaved()
+        discovery.start()
+        if let profile = activeProfile ?? automaticProfile { activate(profile) }
     }
 
     private func disconnectSaved() {
@@ -168,22 +248,27 @@ struct SurfaceView: View {
         satellite.disconnect()
     }
 
-    private func testConfiguration(_ configuration: SurfaceConfiguration) {
-        if !satellite.usesTestConfiguration {
-            restartAfterTest = savedConfiguration != nil && reconnectOnForeground
+    private func removeProfile(_ profile: SavedCompanion) {
+        if activeID == profile.id {
+            satellite.disconnect()
+            clearSelection()
         }
-        satellite.connect(configuration, testing: true)
+        storeProfiles(profiles.filter { $0.id != profile.id })
+        reconcileServers()
     }
 
-    private func saveConfiguration(_ configuration: SurfaceConfiguration) {
+    private func testConfiguration(_ configuration: SurfaceConfiguration, _ service: NearbyCompanion?) {
+        satellite.connect(configuration, endpoint: service?.endpoint, testing: true)
+    }
+
+    private func saveConfiguration(_ configuration: SurfaceConfiguration, _ service: NearbyCompanion?) {
         guard satellite.connected, satellite.usesTestConfiguration, satellite.configuration == configuration else { return }
-        host = configuration.host
-        port = String(configuration.port)
-        columns = configuration.columns
-        rows = configuration.rows
-        configured = true
+        let profile = SavedCompanion(configuration: configuration, bonjourID: service?.serverID)
+        if let service, nearbyServer(for: profile) != service { return }
+        storeProfiles(profiles.filter { $0.id != profile.id } + [profile])
+        activeID = profile.id
+        activeService = service
         reconnectOnForeground = true
-        restartAfterTest = false
         satellite.acceptTest()
         settings = false
     }
@@ -191,8 +276,18 @@ struct SurfaceView: View {
     private func cancelTest() {
         guard satellite.usesTestConfiguration else { return }
         satellite.discardTest()
-        if restartAfterTest && phase != .background { resumeSaved() }
-        restartAfterTest = false
+        guard phase != .background, reconnectOnForeground else { return }
+        if let profile = activeProfile, profile.bonjourID == nil || nearbyServer(for: profile) != nil {
+            activate(profile)
+        } else {
+            clearSelection()
+            reconcileServers()
+        }
+    }
+
+    private func clearSelection() {
+        activeID = nil
+        activeService = nil
     }
 }
 

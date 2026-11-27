@@ -7,6 +7,11 @@ targets:
     type: application
     platform: iOS
     sources: [Sources]
+    info:
+      path: Info.plist
+      properties:
+        NSBonjourServices:
+          - _comp-sat-ws._tcp
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: au.h-v.in.companion
@@ -14,7 +19,7 @@ targets:
         TARGETED_DEVICE_FAMILY: '1,2'
         SWIFT_VERSION: '5.0'
         MARKETING_VERSION: '1.0.0'
-        CURRENT_PROJECT_VERSION: '5'
+        CURRENT_PROJECT_VERSION: '6'
         VERSIONING_SYSTEM: apple-generic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         GENERATE_INFOPLIST_FILE: YES

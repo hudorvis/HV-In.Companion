@@ -1,6 +1,6 @@
 import Foundation
 
-struct SurfaceConfiguration: Equatable {
+struct SurfaceConfiguration: Codable, Equatable {
     static let defaultPort: UInt16 = 16623
 
     let host: String
@@ -25,6 +25,14 @@ struct SurfaceConfiguration: Equatable {
         self.rows = rows
     }
 
+    init?(bonjourName: String, columns: Int, rows: Int) {
+        guard !bonjourName.isEmpty, (1...8).contains(columns), (1...6).contains(rows) else { return nil }
+        host = bonjourName
+        port = Self.defaultPort
+        self.columns = columns
+        self.rows = rows
+    }
+
     private static func validLabel(_ label: Substring) -> Bool {
         !label.isEmpty && label.utf8.count <= 63 && label.first != "-" && label.last != "-"
             && label.utf8.allSatisfy { (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 }
@@ -38,6 +46,23 @@ struct SurfaceConfiguration: Equatable {
         guard coordinates.count == 2, let row = Int(coordinates[0]), let column = Int(coordinates[1]),
               (0..<rows).contains(row), (0..<columns).contains(column) else { return nil }
         return row * columns + column
+    }
+}
+
+struct SavedCompanion: Codable, Equatable, Identifiable {
+    let configuration: SurfaceConfiguration
+    let bonjourID: String?
+
+    var id: String {
+        if let bonjourID { return "bonjour:\(bonjourID)" }
+        return "manual:\(configuration.host.lowercased()):\(configuration.port)"
+    }
+
+    static func automaticMatch(in profiles: [SavedCompanion], discoveredIDs: [String]) -> SavedCompanion? {
+        let knownIDs = Set(profiles.compactMap(\.bonjourID))
+        let matches = discoveredIDs.filter { knownIDs.contains($0) }
+        guard matches.count == 1, let id = matches.first else { return nil }
+        return profiles.first { $0.bonjourID == id }
     }
 }
 

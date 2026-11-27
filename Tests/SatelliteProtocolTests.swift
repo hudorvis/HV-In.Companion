@@ -7,6 +7,7 @@ struct SatelliteProtocolTests {
         testMessages()
         testConfiguration()
         testVerification()
+        try testSavedServers()
         print("Satellite protocol tests passed")
     }
 
@@ -64,6 +65,26 @@ struct SatelliteProtocolTests {
             precondition(SurfaceConfiguration(host: host, port: "16623", columns: 5, rows: 3) == nil)
         }
         precondition(SurfaceConfiguration(host: "companion.local", port: "0", columns: 5, rows: 3) == nil)
+    }
+
+    static func testSavedServers() throws {
+        let studioConfig = SurfaceConfiguration(bonjourName: "Studio A", columns: 5, rows: 3)!
+        let truckConfig = SurfaceConfiguration(bonjourName: "OB Truck", columns: 8, rows: 4)!
+        let manualConfig = SurfaceConfiguration(host: "studio.local", port: "16623", columns: 3, rows: 2)!
+        let studio = SavedCompanion(configuration: studioConfig, bonjourID: "studio")
+        let truck = SavedCompanion(configuration: truckConfig, bonjourID: "truck")
+        let manual = SavedCompanion(configuration: manualConfig, bonjourID: nil)
+        let profiles = [studio, truck, manual]
+        let history = try JSONEncoder().encode(profiles)
+        let restored = try JSONDecoder().decode([SavedCompanion].self, from: history)
+        precondition(restored == profiles)
+        precondition(SavedCompanion.automaticMatch(in: restored, discoveredIDs: ["studio", "unknown"]) == studio)
+        precondition(SavedCompanion.automaticMatch(in: restored, discoveredIDs: ["truck"]) == truck)
+        precondition(SavedCompanion.automaticMatch(in: restored, discoveredIDs: ["studio", "truck"]) == nil)
+        precondition(SavedCompanion.automaticMatch(in: restored, discoveredIDs: ["studio", "studio"]) == nil)
+        precondition(SavedCompanion.automaticMatch(in: restored, discoveredIDs: ["studio.local"]) == nil)
+        let renamed = SurfaceConfiguration(bonjourName: "Studio A (new name)", columns: 5, rows: 3)!
+        precondition(SavedCompanion(configuration: renamed, bonjourID: "studio").id == studio.id)
     }
 
     static func testVerification() {

@@ -4,6 +4,7 @@ import UIKit
 @MainActor
 struct CompanionSettings: View {
     @ObservedObject var satellite: Satellite
+    @ObservedObject var discovery: CompanionDiscovery
     @Binding var haptics: Bool
     @Binding var awake: Bool
     let showWizard: Bool
@@ -11,9 +12,13 @@ struct CompanionSettings: View {
     let port: String
     let columns: Int
     let rows: Int
-    let test: (SurfaceConfiguration) -> Void
-    let save: (SurfaceConfiguration) -> Void
+    let profiles: [SavedCompanion]
+    let activeID: String?
+    let test: (SurfaceConfiguration, NearbyCompanion?) -> Void
+    let save: (SurfaceConfiguration, NearbyCompanion?) -> Void
     let cancelTest: () -> Void
+    let select: (SavedCompanion) -> Void
+    let remove: (SavedCompanion) -> Void
     let connect: () -> Void
     let disconnect: () -> Void
     let canConnect: Bool
@@ -31,23 +36,56 @@ struct CompanionSettings: View {
                                               canConnect: canConnect)
                     }
                 }
+                if !profiles.isEmpty {
+                    Section("Saved Servers") {
+                        ForEach(profiles) { profile in
+                            HStack {
+                                Button { select(profile) } label: {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(profile.configuration.host)
+                                        Text(profileStatus(profile)).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                                .buttonStyle(.borderless)
+                                .disabled(!canSelect(profile))
+                                Spacer()
+                                Button(role: .destructive) { remove(profile) } label: {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless)
+                                .accessibilityLabel("Remove \(profile.configuration.host)")
+                            }
+                        }
+                    }
+                }
                 Section("Display") {
                     Toggle("Haptic feedback", isOn: $haptics)
                     Toggle("Keep screen awake", isOn: $awake)
                 }
-                Section { Text("In.Companion v26.11.26.05").foregroundStyle(.secondary) }
+                Section { Text("In.Companion v26.11.27.01").foregroundStyle(.secondary) }
             }
             .navigationTitle("Settings")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .navigationDestination(isPresented: $displayingWizard) {
-                ConnectionWizard(satellite: satellite, host: host, port: port, columns: columns, rows: rows,
-                                 test: test, save: save, cancelTest: cancelTest)
+                ConnectionWizard(satellite: satellite, discovery: discovery, profiles: profiles,
+                                 host: host, port: port, columns: columns, rows: rows, test: test, save: save, cancelTest: cancelTest)
             }
         }
         .onAppear { if showWizard { displayingWizard = true } }
     }
+    private func canSelect(_ profile: SavedCompanion) -> Bool {
+        guard let id = profile.bonjourID else { return true }
+        return discovery.servers.filter { $0.serverID == id }.count == 1
+    }
+
+    private func profileStatus(_ profile: SavedCompanion) -> String {
+        if profile.id == activeID && satellite.connected { return "Connected" }
+        if profile.bonjourID == nil { return "Manual address" }
+        return canSelect(profile) ? "Nearby" : "Unavailable"
+    }
+
 }
 
 @MainActor
@@ -59,19 +97,26 @@ private struct ConnectionWizard: View {
     }
 
     @ObservedObject var satellite: Satellite
-    let test: (SurfaceConfiguration) -> Void
-    let save: (SurfaceConfiguration) -> Void
+    @ObservedObject var discovery: CompanionDiscovery
+    let profiles: [SavedCompanion]
+    let test: (SurfaceConfiguration, NearbyCompanion?) -> Void
+    let save: (SurfaceConfiguration, NearbyCompanion?) -> Void
     let cancelTest: () -> Void
     @State private var step = Step.prepare
+    @State private var service: NearbyCompanion?
     @State private var host: String
     @State private var port: String
     @State private var columns: Int
     @State private var rows: Int
 
-    init(satellite: Satellite, host: String, port: String, columns: Int, rows: Int,
-         test: @escaping (SurfaceConfiguration) -> Void, save: @escaping (SurfaceConfiguration) -> Void,
+    init(satellite: Satellite, discovery: CompanionDiscovery, profiles: [SavedCompanion],
+         host: String, port: String, columns: Int, rows: Int,
+         test: @escaping (SurfaceConfiguration, NearbyCompanion?) -> Void,
+         save: @escaping (SurfaceConfiguration, NearbyCompanion?) -> Void,
          cancelTest: @escaping () -> Void) {
         self.satellite = satellite
+        self.discovery = discovery
+        self.profiles = profiles
         self.test = test
         self.save = save
         self.cancelTest = cancelTest
@@ -82,11 +127,21 @@ private struct ConnectionWizard: View {
     }
 
     private var draft: SurfaceConfiguration? {
-        SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows)
+        if let service { return SurfaceConfiguration(bonjourName: service.name, columns: columns, rows: rows) }
+        return SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows)
+    }
+
+    private var serviceAvailable: Bool {
+        guard let service else { return true }
+        return discovery.servers.contains(service) && uniqueService(service)
+    }
+
+    private func uniqueService(_ server: NearbyCompanion) -> Bool {
+        discovery.servers.filter { $0.serverID == server.serverID }.count == 1
     }
 
     private var verified: Bool {
-        satellite.usesTestConfiguration && satellite.connected && draft == satellite.configuration
+        satellite.usesTestConfiguration && satellite.connected && draft == satellite.configuration && serviceAvailable
     }
 
     var body: some View {
@@ -96,19 +151,44 @@ private struct ConnectionWizard: View {
                 Section("1 of 3 · Prepare Companion") {
                     Text("Open Bitfocus Companion 4.3 or later on your control computer and select Launch GUI.")
                     Text("Open Settings → Protocols. If Protocols is hidden, expand Settings in the sidebar.")
-                    Text("Enable Button Subscriptions API. Note the Satellite WebSocket Listen Port, usually 16623.")
+                    Text("Enable Button Subscriptions API. To be found automatically, turn on Announce Companion on the network (mDNS/Bonjour) if your version offers it.")
                 }
                 Section { Button("Continue") { step = .connect } }
             case .connect:
-                Section("2 of 3 · Connect") {
+                Section("2 of 3 · Nearby Companion") {
+                    if discovery.servers.isEmpty {
+                        Text(discovery.status).foregroundStyle(.secondary)
+                    }
+                    ForEach(discovery.servers) { server in
+                        Button {
+                            service = server
+                            if let profile = profiles.first(where: { $0.bonjourID == server.serverID }) {
+                                resize(columns: profile.configuration.columns, rows: profile.configuration.rows)
+                            }
+                            runTest()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(server.name)
+                                if !uniqueService(server) {
+                                    Text("Duplicate Companion ID").foregroundStyle(.secondary).font(.caption)
+                                }
+                            }
+                        }
+                        .disabled(!uniqueService(server))
+                    }
+                }
+                Section("Manual Address") {
                     TextField("Hostname or IP address", text: $host, prompt: Text("companion.local"))
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                         .keyboardType(.URL)
                     TextField("Satellite WebSocket port", text: $port)
                         .keyboardType(.numberPad)
-                    Button("Test Connection") { runTest() }
-                        .disabled(draft == nil)
+                    Button("Test Connection") {
+                        service = nil
+                        runTest()
+                    }
+                    .disabled(SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows) == nil)
                 }
                 Section("Local Network") {
                     Text("Connect your iPhone or iPad to the same network as Companion. Tap Allow when iOS asks for Local Network access. If access was denied, enable Local Network for In.Companion in iOS Settings.")
@@ -119,7 +199,12 @@ private struct ConnectionWizard: View {
                 Section { Button("Previous") { step = .prepare } }
             case .surface:
                 Section("3 of 3 · Configure Surface") {
+                    LabeledContent("Server", value: draft?.host ?? "—")
                     LabeledContent("Status", value: satellite.stage.rawValue)
+                    if !serviceAvailable {
+                        Text("This Companion is no longer uniquely available on this network.")
+                            .foregroundStyle(.red)
+                    }
                     verificationRow("WebSocket opened", passed: satellite.verification.webSocket)
                     verificationRow("Companion API compatible", passed: satellite.verification.compatibleAPI)
                     verificationRow("Button subscription accepted", passed: satellite.verification.subscriptionAccepted)
@@ -146,9 +231,9 @@ private struct ConnectionWizard: View {
                     }
                 }
                 Section {
-                    Button("Open Surface") { if let draft, verified { save(draft) } }.disabled(!verified)
-                    Button("Test Again") { runTest() }.disabled(draft == nil)
-                    Button("Edit Address") {
+                    Button("Open Surface") { if let draft, verified { save(draft, service) } }.disabled(!verified)
+                    Button("Test Again") { runTest() }.disabled(draft == nil || !serviceAvailable)
+                    Button("Change Server") {
                         cancelTest()
                         step = .connect
                     }
@@ -161,9 +246,9 @@ private struct ConnectionWizard: View {
     }
 
     private func runTest() {
-        guard let draft else { return }
+        guard let draft, serviceAvailable else { return }
         step = .surface
-        test(draft)
+        test(draft, service)
     }
 
     private func resize(columns: Int, rows: Int) {
@@ -188,8 +273,8 @@ private struct ConnectionDiagnostics: View {
     var body: some View {
         Form {
             Section("Connection") {
-                LabeledContent("Server", value: satellite.configuration?.host ?? "—")
-                LabeledContent("Port", value: satellite.configuration.map { String($0.port) } ?? "—")
+                LabeledContent("Server", value: satellite.diagnosticHost)
+                LabeledContent("Port", value: satellite.diagnosticPort)
                 LabeledContent("Protocol", value: "Satellite WebSocket")
                 LabeledContent("Status", value: satellite.stage.rawValue)
                 LabeledContent("Companion version", value: satellite.companionVersion ?? "—")

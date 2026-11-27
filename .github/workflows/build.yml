@@ -15,4 +15,10 @@ jobs:
           "$RUNNER_TEMP/satellite-protocol-tests"
       - run: swift scripts/icon.swift
       - run: xcodegen generate
-      - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
+      - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -derivedDataPath "$RUNNER_TEMP/incompanion-build" build
+      - name: Verify Local Network permissions in the built app
+        run: |
+          set -euo pipefail
+          PLIST="$RUNNER_TEMP/incompanion-build/Build/Products/Debug-iphonesimulator/In.Companion.app/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "$PLIST")" = "_comp-sat-ws._tcp"
+          /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$PLIST"
