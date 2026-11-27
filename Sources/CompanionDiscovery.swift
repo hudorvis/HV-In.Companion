@@ -19,7 +19,19 @@ final class CompanionDiscovery: ObservableObject {
     @Published private(set) var status = "Looking for Companion"
     private var browser: NWBrowser?
 
+    #if DEBUG && APP_STORE_SCREENSHOTS
+    func loadScreenshotServers() -> NearbyCompanion? {
+        servers = ["Studio A", "OB Truck", "Event Control"].map { name in
+            NearbyCompanion(serverID: name, name: name, domain: "local.", type: Self.serviceType)
+        }
+        return servers.first
+    }
+    #endif
+
     func start() {
+        #if DEBUG && APP_STORE_SCREENSHOTS
+        if AppStoreScreenshot.current != nil { return }
+        #endif
         guard browser == nil else { return }
         status = "Looking for Companion"
         let browser = NWBrowser(for: .bonjourWithTXTRecord(type: Self.serviceType, domain: "local."), using: .tcp)

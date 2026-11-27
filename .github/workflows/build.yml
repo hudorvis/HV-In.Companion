@@ -1,4 +1,4 @@
-name: iOS compile check
+name: iOS build and App Store screenshots
 on:
   push:
     branches: [main]
@@ -15,7 +15,7 @@ jobs:
           "$RUNNER_TEMP/satellite-protocol-tests"
       - run: python3 scripts/verify_app_icon.py
       - run: xcodegen generate
-      - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -derivedDataPath "$RUNNER_TEMP/incompanion-build" build
+      - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO SWIFT_ACTIVE_COMPILATION_CONDITIONS='DEBUG APP_STORE_SCREENSHOTS' -derivedDataPath "$RUNNER_TEMP/incompanion-build" build
       - name: Verify icon and metadata in the built app
         run: |
           set -euo pipefail
@@ -25,4 +25,14 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "$PLIST")" = "_comp-sat-ws._tcp"
           /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$PLIST"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.0.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "9"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "10"
+      - name: Capture App Store screenshots
+        run: |
+          bash scripts/capture-app-store-screenshots.sh \
+            "$RUNNER_TEMP/incompanion-build/Build/Products/Debug-iphonesimulator/In.Companion.app" \
+            "$RUNNER_TEMP/In.Companion-App-Store-Screenshots"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: In.Companion-v26.11.27.05-App-Store-Screenshots
+          path: ${{ runner.temp }}/In.Companion-App-Store-Screenshots
+          if-no-files-found: error

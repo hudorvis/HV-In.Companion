@@ -1,4 +1,4 @@
-# In.Companion v26.11.27.04
+# In.Companion v26.11.27.05
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 
@@ -51,3 +51,7 @@ open In.Companion.xcodeproj
 GitHub Actions checks the protocol, saved-server matching and iOS Simulator compilation. Physical iPhone and iPad testing against a live Companion instance is required to verify Local Network permission, touch handling and end-to-end operation.
 
 Codemagic uses the `ios-release` workflow, App Store Connect integration `In.Sync`, Apple ID `6839444405` and bundle ID `au.h-v.in.companion`. Main branch pushes trigger builds. The workflow sets the build number, signs the IPA and uploads it to App Store Connect. Public review submission is disabled.
+
+## App Store screenshots
+
+The GitHub Actions build captures five unframed screenshots per platform: vision switching, live cues, audio, full-screen controls and the server picker. Its artifact contains iPhone 1206 × 2622 and iPad 2064 × 2752 JPEGs in separate folders. The capture uses the actual SwiftUI interface with representative Companion artwork and server names available only in the debug screenshot build. Codemagic release builds exclude that data.

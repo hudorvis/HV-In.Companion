@@ -64,6 +64,13 @@ final class Satellite: ObservableObject {
     }
     private var pendingButtonInputs: [PendingButtonInput] = []
 
+    #if DEBUG && APP_STORE_SCREENSHOTS
+    func loadScreenshot(_ scene: AppStoreScreenshot) {
+        images = scene.makeArtwork()
+        stage = .connected
+    }
+    #endif
+
     func connect(_ configuration: SurfaceConfiguration, endpoint: NWEndpoint? = nil) {
         disconnect()
         self.configuration = configuration

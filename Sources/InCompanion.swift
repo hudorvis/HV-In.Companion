@@ -104,6 +104,20 @@ struct SurfaceView: View {
             }
         }
         .onAppear {
+            #if DEBUG && APP_STORE_SCREENSHOTS
+            if let scene = AppStoreScreenshot.current {
+                if scene == .servers {
+                    activeService = discovery.loadScreenshotServers()
+                    showServers = true
+                } else {
+                    activeService = NearbyCompanion(serverID: "capture", name: scene.serverName,
+                                                    domain: "local.", type: CompanionDiscovery.serviceType)
+                }
+                fullScreen = scene == .fullScreen
+                satellite.loadScreenshot(scene)
+                return
+            }
+            #endif
             UIApplication.shared.isIdleTimerDisabled = phase == .active && awake
             migrateLegacyServer()
             discovery.start()
@@ -223,6 +237,9 @@ struct SurfaceView: View {
     }
 
     private func reconcileServers() {
+        #if DEBUG && APP_STORE_SCREENSHOTS
+        if AppStoreScreenshot.current != nil { return }
+        #endif
         guard phase == .active, autoConnect else { return }
         if let profile = activeProfile {
             if profile.bonjourID != nil {
