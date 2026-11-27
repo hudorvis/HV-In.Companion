@@ -139,7 +139,7 @@ struct SurfaceView: View {
                 canConnect: activeProfile != nil || automaticProfile != nil
             )
         }
-        .task(id: discovery.servers) {
+        .task(id: phase == .active ? discovery.servers : []) {
             do { try await Task.sleep(for: .milliseconds(1200)) } catch { return }
             reconcileServers()
         }
@@ -151,7 +151,6 @@ struct SurfaceView: View {
             switch newPhase {
             case .active:
                 discovery.start()
-                reconcileServers()
             case .inactive:
                 satellite.releaseAll()
             case .background:
