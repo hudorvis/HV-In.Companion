@@ -1,4 +1,4 @@
-# In.Companion v26.11.27.02
+# In.Companion v26.11.27.03
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 
@@ -39,7 +39,7 @@ On macOS with Xcode and XcodeGen installed:
 ```sh
 swiftc Sources/SatelliteProtocol.swift Tests/SatelliteProtocolTests.swift -o /tmp/incompanion-protocol-tests
 /tmp/incompanion-protocol-tests
-swift scripts/icon.swift
+python3 scripts/verify_app_icon.py
 xcodegen generate
 open In.Companion.xcodeproj
 ```

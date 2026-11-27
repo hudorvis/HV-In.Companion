@@ -1,6 +1,6 @@
 workflows:
   ios-release:
-    name: In.Companion - TestFlight v26.11.27.02
+    name: In.Companion - TestFlight v26.11.27.03
     max_build_duration: 60
     instance_type: mac_mini_m2
     integrations:
@@ -21,11 +21,11 @@ workflows:
           source: true
       cancel_previous_builds: false
     scripts:
-      - name: Generate Xcode project and icon
+      - name: Verify app icon and generate Xcode project
         script: |
           set -e
           command -v xcodegen || brew install xcodegen
-          swift scripts/icon.swift
+          python3 scripts/verify_app_icon.py
           xcodegen generate
       - name: Set build number
         script: |
@@ -33,12 +33,18 @@ workflows:
           : "${APP_STORE_APPLE_ID:?Missing numeric App Store Connect Apple ID}"
           LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID")
           NEXT=$(( ${LATEST:-0} + 1 ))
-          if [ "$NEXT" -lt 7 ]; then NEXT=7; fi
+          if [ "$NEXT" -lt 8 ]; then NEXT=8; fi
           agvtool new-version -all "$NEXT"
       - name: Apply signing profiles
         script: xcode-project use-profiles
       - name: Build signed IPA
         script: xcode-project build-ipa --project In.Companion.xcodeproj --scheme InCompanion
+      - name: Verify icon in signed IPA
+        script: |
+          set -e
+          for ipa in build/ios/ipa/*.ipa; do
+            python3 scripts/verify_app_icon.py "$ipa"
+          done
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log

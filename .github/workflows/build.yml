@@ -13,14 +13,16 @@ jobs:
         run: |
           swiftc Sources/SatelliteProtocol.swift Tests/SatelliteProtocolTests.swift -o "$RUNNER_TEMP/satellite-protocol-tests"
           "$RUNNER_TEMP/satellite-protocol-tests"
-      - run: swift scripts/icon.swift
+      - run: python3 scripts/verify_app_icon.py
       - run: xcodegen generate
       - run: xcodebuild -project In.Companion.xcodeproj -scheme InCompanion -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO -derivedDataPath "$RUNNER_TEMP/incompanion-build" build
-      - name: Verify Local Network permissions in the built app
+      - name: Verify icon and metadata in the built app
         run: |
           set -euo pipefail
-          PLIST="$RUNNER_TEMP/incompanion-build/Build/Products/Debug-iphonesimulator/In.Companion.app/Info.plist"
+          APP="$RUNNER_TEMP/incompanion-build/Build/Products/Debug-iphonesimulator/In.Companion.app"
+          python3 scripts/verify_app_icon.py "$APP"
+          PLIST="$APP/Info.plist"
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "$PLIST")" = "_comp-sat-ws._tcp"
           /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$PLIST"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.0.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "7"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "8"
