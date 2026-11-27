@@ -3,6 +3,7 @@ set -euo pipefail
 
 app=$1
 output_dir=$2
+platform=$3
 scratch=$(mktemp -d)
 active_device=
 bundle_id=au.h-v.in.companion
@@ -50,9 +51,6 @@ else:
 PY
 }
 
-iphone=$(device_type "iPhone 17 Pro" "iPhone 16 Pro")
-ipad=$(device_type "iPad Pro 13-inch (M5)" "iPad Pro 13-inch (M4)")
-
 test -d "$app"
 xcrun --sdk macosx swiftc scripts/check-screenshot-banner.swift -o "$scratch/check-screenshot-banner"
 
@@ -77,8 +75,8 @@ take_screenshot() {
 
 capture_device() {
     local type=$1 folder=$2 width=$3 height=$4 capture scene screenshot properties pixels
+    echo "Preparing $folder ($type) on $runtime"
     active_device=$(xcrun simctl create "In.Companion $folder" "$type" "$runtime")
-    xcrun simctl boot "$active_device"
     xcrun simctl bootstatus "$active_device" -b
     xcrun simctl status_bar "$active_device" override --time '9:41' \
         --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 \
@@ -111,5 +109,8 @@ capture_device() {
     active_device=
 }
 
-capture_device "$iphone" iPhone 1206 2622
-capture_device "$ipad" iPad 2064 2752
+case "$platform" in
+    iPhone) capture_device "$(device_type "iPhone 17 Pro" "iPhone 16 Pro")" iPhone 1206 2622 ;;
+    iPad) capture_device "$(device_type "iPad Pro 13-inch (M5)" "iPad Pro 13-inch (M4)")" iPad 2064 2752 ;;
+    *) echo "Unknown platform: $platform" >&2; exit 2 ;;
+esac

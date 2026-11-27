@@ -1,4 +1,4 @@
-# In.Companion v26.11.27.05
+# In.Companion v26.11.27.06
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 

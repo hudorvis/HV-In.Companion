@@ -6,6 +6,10 @@ on:
 jobs:
   compile:
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [iPhone, iPad]
     steps:
       - uses: actions/checkout@v4
       - run: brew list xcodegen || brew install xcodegen
@@ -25,14 +29,29 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "$PLIST")" = "_comp-sat-ws._tcp"
           /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$PLIST"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.0.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "10"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "11"
       - name: Capture App Store screenshots
+        timeout-minutes: 18
         run: |
           bash scripts/capture-app-store-screenshots.sh \
             "$RUNNER_TEMP/incompanion-build/Build/Products/Debug-iphonesimulator/In.Companion.app" \
-            "$RUNNER_TEMP/In.Companion-App-Store-Screenshots"
+            "$RUNNER_TEMP/In.Companion-App-Store-Screenshots" "${{ matrix.platform }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: In.Companion-v26.11.27.05-App-Store-Screenshots
+          name: screenshots-${{ matrix.platform }}
           path: ${{ runner.temp }}/In.Companion-App-Store-Screenshots
+          if-no-files-found: error
+  screenshots:
+    runs-on: ubuntu-latest
+    needs: compile
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: screenshots-*
+          path: screenshots
+          merge-multiple: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: In.Companion-v26.11.27.06-App-Store-Screenshots
+          path: screenshots
           if-no-files-found: error
