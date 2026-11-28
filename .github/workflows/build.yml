@@ -29,7 +29,7 @@ jobs:
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSBonjourServices:0' "$PLIST")" = "_comp-sat-ws._tcp"
           /usr/libexec/PlistBuddy -c 'Print :NSLocalNetworkUsageDescription' "$PLIST"
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")" = "1.0.0"
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "12"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")" = "13"
       - name: Capture App Store screenshots
         timeout-minutes: 18
         run: |
@@ -52,6 +52,6 @@ jobs:
           merge-multiple: true
       - uses: actions/upload-artifact@v4
         with:
-          name: In.Companion-v26.11.28.01-App-Store-Screenshots
+          name: In.Companion-v26.11.28.02-App-Store-Screenshots
           path: screenshots
           if-no-files-found: error

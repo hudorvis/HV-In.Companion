@@ -222,6 +222,10 @@ struct SurfaceView: View {
                         showServers = false
                     }
                 }
+                Section {
+                    Text("Settings > Protocol > Enable Button Subscriptions API")
+                    Text("Settings > General > Announce Companion on the network (mDNS/Bonjour)")
+                }
             }
             .navigationTitle("Companion Servers")
             .navigationBarTitleDisplayMode(.inline)
