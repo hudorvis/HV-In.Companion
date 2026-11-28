@@ -8,6 +8,7 @@ struct SatelliteProtocolTests {
         testConfiguration()
         try testCompanionGridConfig()
         testPhysicalKeyPresses()
+        testDeckLayout()
         testButtonReplies()
         testVerification()
         try testSavedServers()
@@ -147,5 +148,21 @@ struct SatelliteProtocolTests {
         precondition(!result.complete)
         result.surfaceArtwork = true
         precondition(result.complete)
+    }
+
+    static func testDeckLayout() {
+        let portrait = DeckLayout(size: CGSize(width: 366, height: 600), columns: 5, rows: 3, corner: 0)
+        precondition(portrait.center == CGPoint(x: 183, y: 300))
+
+        let size = CGSize(width: 780, height: 356)
+        let offset = CGPoint(x: -20, y: 10)
+        let full = DeckLayout(size: size, columns: 16, rows: 7, corner: 44, centerOffset: offset)
+        precondition(full.center == CGPoint(x: 370, y: 188))
+        let width = 16 * full.side + 15 * full.gap
+        let height = 7 * full.side + 6 * full.gap
+        let deck = CGRect(x: full.center.x - width / 2, y: full.center.y - height / 2,
+                          width: width, height: height)
+        precondition(CGRect(origin: .zero, size: size).insetBy(dx: -0.01, dy: -0.01).contains(deck))
+        precondition(!deck.intersects(CGRect(x: 736, y: 0, width: 44, height: 44)))
     }
 }

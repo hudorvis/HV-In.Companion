@@ -1,4 +1,4 @@
-# In.Companion v26.11.28.02
+# In.Companion v26.11.28.03
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 
@@ -43,7 +43,7 @@ Press and release a key, then tap the status or server name. **Last button reply
 On macOS with Xcode and XcodeGen installed:
 
 ```sh
-swiftc Sources/SatelliteProtocol.swift Tests/SatelliteProtocolTests.swift -o /tmp/incompanion-protocol-tests
+swiftc Sources/SatelliteProtocol.swift Sources/DeckLayout.swift Tests/SatelliteProtocolTests.swift -o /tmp/incompanion-protocol-tests
 /tmp/incompanion-protocol-tests
 python3 scripts/verify_app_icon.py
 xcodegen generate

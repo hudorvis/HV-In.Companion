@@ -37,33 +37,48 @@ struct SurfaceView: View {
     }
 
     var body: some View {
-        VStack(spacing: fullScreen ? 0 : 8) {
-            if !fullScreen { header }
-            GeometryReader { geometry in
-                let columns = activeProfile == nil ? 5 : satellite.configuration?.columns ?? 5
-                let rows = activeProfile == nil ? 3 : satellite.configuration?.rows ?? 3
-                let grid = DeckLayout(size: geometry.size, columns: columns, rows: rows,
-                                      corner: fullScreen ? Self.cornerSize : 0)
-                VStack(spacing: grid.gap) {
-                    ForEach(0..<rows, id: \.self) { row in
-                        HStack(spacing: grid.gap) {
-                            ForEach(0..<columns, id: \.self) { column in
-                                let index = row * columns + column
-                                DeckKey(image: satellite.images[index],
-                                        enabled: satellite.inputReady && !showServers && phase == .active,
-                                        down: satellite.held.contains(index) || satellite.remoteHeld.contains(index),
-                                        haptics: haptics, title: "Companion key \(row + 1), \(column + 1)") { down in
-                                    satellite.press(index, down)
+        GeometryReader { screen in
+            let insets = screen.safeAreaInsets
+            let landscape = screen.size.width + insets.leading + insets.trailing
+                > screen.size.height + insets.top + insets.bottom
+            let compactFullScreen = fullScreen && landscape
+            let centerOffset = compactFullScreen
+                ? CGPoint(x: (insets.trailing - insets.leading) / 2, y: (insets.bottom - insets.top) / 2)
+                : .zero
+            VStack(spacing: compactFullScreen ? 0 : 8) {
+                if !compactFullScreen {
+                    header
+                        .opacity(fullScreen ? 0 : 1)
+                        .allowsHitTesting(!fullScreen)
+                        .accessibilityHidden(fullScreen)
+                }
+                GeometryReader { geometry in
+                    let columns = activeProfile == nil ? 5 : satellite.configuration?.columns ?? 5
+                    let rows = activeProfile == nil ? 3 : satellite.configuration?.rows ?? 3
+                    let grid = DeckLayout(size: geometry.size, columns: columns, rows: rows,
+                                          corner: compactFullScreen ? Self.cornerSize : 0,
+                                          centerOffset: centerOffset)
+                    VStack(spacing: grid.gap) {
+                        ForEach(0..<rows, id: \.self) { row in
+                            HStack(spacing: grid.gap) {
+                                ForEach(0..<columns, id: \.self) { column in
+                                    let index = row * columns + column
+                                    DeckKey(image: satellite.images[index],
+                                            enabled: satellite.inputReady && !showServers && phase == .active,
+                                            down: satellite.held.contains(index) || satellite.remoteHeld.contains(index),
+                                            haptics: haptics, title: "Companion key \(row + 1), \(column + 1)") { down in
+                                        satellite.press(index, down)
+                                    }
+                                    .frame(width: grid.side, height: grid.side)
                                 }
-                                .frame(width: grid.side, height: grid.side)
                             }
                         }
                     }
+                    .position(x: grid.center.x, y: grid.center.y)
                 }
-                .position(x: grid.center.x, y: grid.center.y)
             }
+            .padding(compactFullScreen ? 4 : 12)
         }
-        .padding(fullScreen ? 4 : 12)
         .overlay(alignment: .topTrailing) {
             Button {
                 satellite.releaseAll()
@@ -320,35 +335,5 @@ struct SurfaceView: View {
                                                        rows: defaults.object(forKey: "rows") as? Int ?? 3)
         else { return }
         save(SavedCompanion(configuration: configuration, bonjourID: nil))
-    }
-}
-
-private struct DeckLayout {
-    let gap: CGFloat
-    let side: CGFloat
-    let center: CGPoint
-
-    init(size: CGSize, columns: Int, rows: Int, corner: CGFloat) {
-        let gap = min(7, max(1, min(size.width / CGFloat(columns), size.height / CGFloat(rows)) * 0.12))
-        self.gap = gap
-        func keySize(in area: CGRect) -> CGFloat {
-            max(1, min((area.width - CGFloat(columns - 1) * gap) / CGFloat(columns),
-                       (area.height - CGFloat(rows - 1) * gap) / CGFloat(rows)))
-        }
-
-        let bounds = CGRect(origin: .zero, size: size)
-        let initialSide = keySize(in: bounds)
-        let width = CGFloat(columns) * initialSide + CGFloat(columns - 1) * gap
-        let height = CGFloat(rows) * initialSide + CGFloat(rows - 1) * gap
-        let deck = CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
-        let toggle = CGRect(x: bounds.maxX - corner, y: 0, width: corner, height: corner)
-        var area = bounds
-        if corner > 0, deck.intersects(toggle) {
-            let below = CGRect(x: 0, y: corner, width: size.width, height: max(0, size.height - corner))
-            let left = CGRect(x: 0, y: 0, width: max(0, size.width - corner), height: size.height)
-            area = keySize(in: below) >= keySize(in: left) ? below : left
-        }
-        side = keySize(in: area)
-        center = CGPoint(x: area.midX, y: area.midY)
     }
 }
