@@ -1,4 +1,4 @@
-import Foundation
+import CoreGraphics
 
 struct DeckLayout {
     let gap: CGFloat
@@ -30,8 +30,9 @@ struct DeckLayout {
             // Reduce the grid symmetrically to clear the toggle without shifting its centre.
             let clearWidth = min(halfWidth, toggle.minX - center.x - gap)
             let clearHeight = min(halfHeight, center.y - toggle.maxY - gap)
-            side = max(1, max(keySize(halfWidth: clearWidth, halfHeight: halfHeight),
-                              keySize(halfWidth: halfWidth, halfHeight: clearHeight)))
+            let sideLeft = keySize(halfWidth: clearWidth, halfHeight: halfHeight)
+            let sideBelow = keySize(halfWidth: halfWidth, halfHeight: clearHeight)
+            side = max(1, sideLeft, sideBelow)
         } else {
             side = max(1, initialSide)
         }
