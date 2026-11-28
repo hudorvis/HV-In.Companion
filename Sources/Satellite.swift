@@ -31,6 +31,12 @@ final class Satellite: ObservableObject {
     @Published private(set) var lastButtonReply: String?
 
     var connected: Bool { stage == .connected }
+    var inputReady: Bool { connected && foregroundProbe == nil }
+
+    @Published private(set) var configuration: SurfaceConfiguration?
+    @Published private var foregroundProbe: Int?
+    private var foregroundCheck: Task<Void, Never>?
+    private var gridUpdate: Task<Void, Never>?
 
     let surfaceID: String = {
         let key = "surfaceID"
@@ -49,7 +55,6 @@ final class Satellite: ObservableObject {
     private var retryTask: Task<Void, Never>?
     private var wantsConnection = false
     private var verification = SatelliteVerification()
-    private var configuration: SurfaceConfiguration?
     private var imageCount = 0
     private var retryDelay = 1
     private var lastPong = ContinuousClock.now
@@ -82,6 +87,29 @@ final class Satellite: ObservableObject {
         resetVerification()
         setStage(.opening)
         if drainingSocket == nil { start() }
+    }
+
+    func resumeConnection() {
+        if retryTask != nil, wantsConnection {
+            retryTask?.cancel()
+            retryTask = nil
+            retryDelay = 1
+            start()
+            return
+        }
+        guard connected, let socket else { return }
+        foregroundCheck?.cancel()
+        probesSent += 1
+        let sequence = probesSent
+        foregroundProbe = sequence
+        // Allow the immediate PONG to confirm the socket survived suspension.
+        lastPong = .now
+        transmit("PING \(sequence)", on: socket)
+        foregroundCheck = Task { @MainActor [weak self, weak socket] in
+            do { try await Task.sleep(for: .seconds(2)) } catch { return }
+            guard let self, let socket, self.socket === socket, self.foregroundProbe == sequence else { return }
+            self.fail("Companion connection expired in the background.", immediate: true)
+        }
     }
 
     func disconnect() {
@@ -119,7 +147,7 @@ final class Satellite: ObservableObject {
               let command = configuration.keyPressCommand(deviceID: surfaceID, index: index, pressed: down)
         else { return false }
         if down {
-            guard images[index] != nil, held.insert(index).inserted else { return false }
+            guard inputReady, images[index] != nil, held.insert(index).inserted else { return false }
         } else {
             guard held.remove(index) != nil else { return false }
         }
@@ -256,6 +284,11 @@ final class Satellite: ObservableObject {
                sequence > probesAnswered, sequence <= probesSent {
                 probesAnswered = sequence
                 lastPong = .now
+                if let foregroundProbe, sequence >= foregroundProbe {
+                    self.foregroundProbe = nil
+                    foregroundCheck?.cancel()
+                    foregroundCheck = nil
+                }
             }
         case "BEGIN" where stage == .greeting:
             let apiVersion = message["APIVERSION"]
@@ -277,13 +310,25 @@ final class Satellite: ObservableObject {
             bitmapFormat = formats.contains("png") ? " BITMAP_FORMAT=png" : ""
             setStage(.registering)
             armTimeout(on: connection, message: "Companion did not acknowledge the surface. Check its Surfaces tab and Satellite settings.", seconds: 10)
-            transmit("ADD-DEVICE DEVICEID=\(surfaceID) PRODUCT_NAME=\"\(Self.surfaceName)\" KEYS_TOTAL=\(configuration.rows * configuration.columns) KEYS_PER_ROW=\(configuration.columns) BITMAPS=\(Self.bitmapSize) BRIGHTNESS=0\(bitmapFormat)", on: connection)
+            transmit("ADD-DEVICE DEVICEID=\(surfaceID) PRODUCT_NAME=\"\(Self.surfaceName)\" KEYS_TOTAL=\(configuration.rows * configuration.columns) KEYS_PER_ROW=\(configuration.columns) BITMAPS=\(Self.bitmapSize) BRIGHTNESS=0 CONFIG_FIELDS=\(configuration.gridConfigFields)\(bitmapFormat)", on: connection)
         case "ADD-DEVICE" where stage == .registering:
             guard message.succeeded, message["DEVICEID"] == surfaceID else { return }
             verification.registered = true
             setStage(.artwork)
             armTimeout(on: connection, message: "Surface registered, but verification is incomplete. Check that the surface is active in Companion and artwork is being sent.", seconds: 15)
             subscribeForVerification(on: connection)
+        case "DEVICE-CONFIG" where message["DEVICEID"] == surfaceID:
+            guard let encoded = message["CONFIG"], let configuration,
+                  let updated = configuration.applyingGridConfig(encoded) else { return }
+            gridUpdate?.cancel()
+            guard updated != configuration else { return }
+            gridUpdate = Task { @MainActor [weak self, weak connection] in
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+                guard let self, let connection, self.socket === connection else { return }
+                // Satellite grids are declared at registration. Re-register the existing
+                // surface ID on a clean connection so old artwork cannot cross layouts.
+                self.connect(updated, endpoint: self.discoveryEndpoint)
+            }
         case "KEYS-CLEAR" where message["DEVICEID"] == surfaceID:
             releaseAll()
             clearSurface()
@@ -396,7 +441,7 @@ final class Satellite: ObservableObject {
         }
     }
 
-    private func fail(_ detail: String, retry: Bool = true) {
+    private func fail(_ detail: String, retry: Bool = true, immediate: Bool = false) {
         error = detail
         Self.logger.error("\(detail, privacy: .private)")
         let previous = socket
@@ -411,6 +456,11 @@ final class Satellite: ObservableObject {
             return
         }
         setStage(.reconnecting)
+        if immediate {
+            retryDelay = 1
+            start()
+            return
+        }
         let delay = retryDelay
         retryDelay = min(delay * 2, 15)
         retryTask = Task { @MainActor [weak self] in
@@ -422,6 +472,11 @@ final class Satellite: ObservableObject {
     }
 
     private func stopTimers() {
+        foregroundProbe = nil
+        foregroundCheck?.cancel()
+        foregroundCheck = nil
+        gridUpdate?.cancel()
+        gridUpdate = nil
         timeoutTask?.cancel()
         timeoutTask = nil
         heartbeatTask?.cancel()

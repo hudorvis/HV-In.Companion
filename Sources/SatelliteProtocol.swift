@@ -2,6 +2,7 @@ import Foundation
 
 struct SurfaceConfiguration: Codable, Equatable {
     static let defaultPort: UInt16 = 16623
+    static let gridCounts = 1...32
 
     let host: String
     let port: UInt16
@@ -15,7 +16,7 @@ struct SurfaceConfiguration: Codable, Equatable {
         guard !address.isEmpty, address.utf8.count <= 253,
               labels.allSatisfy(Self.validLabel),
               let port = UInt16(port.trimmingCharacters(in: .whitespacesAndNewlines)), port > 0,
-              (1...8).contains(columns), (1...6).contains(rows) else { return nil }
+              Self.gridCounts.contains(columns), Self.gridCounts.contains(rows) else { return nil }
         if labels.count == 4, labels.allSatisfy({ $0.utf8.allSatisfy { (48...57).contains($0) } }) {
             guard labels.allSatisfy({ UInt8($0) != nil }) else { return nil }
         }
@@ -26,11 +27,54 @@ struct SurfaceConfiguration: Codable, Equatable {
     }
 
     init?(bonjourName: String, columns: Int, rows: Int) {
-        guard !bonjourName.isEmpty, (1...8).contains(columns), (1...6).contains(rows) else { return nil }
+        guard !bonjourName.isEmpty, Self.gridCounts.contains(columns), Self.gridCounts.contains(rows) else { return nil }
         host = bonjourName
         port = Self.defaultPort
         self.columns = columns
         self.rows = rows
+    }
+
+    private init(host: String, port: UInt16, columns: Int, rows: Int) {
+        self.host = host
+        self.port = port
+        self.columns = columns
+        self.rows = rows
+    }
+
+    var gridConfigFields: String {
+        struct Field: Encodable {
+            let type = "number"
+            let min = SurfaceConfiguration.gridCounts.lowerBound
+            let max = SurfaceConfiguration.gridCounts.upperBound
+            let step = 1
+            let id: String
+            let label: String
+            let defaultValue: Int
+
+            enum CodingKeys: String, CodingKey {
+                case type, min, max, step, id, label
+                case defaultValue = "default"
+            }
+        }
+        let fields = [
+            Field(id: "rows", label: "Row Count", defaultValue: rows),
+            Field(id: "columns", label: "Column Count", defaultValue: columns)
+        ]
+        // The schema contains only strings and integers, which JSONEncoder can always encode.
+        return (try? JSONEncoder().encode(fields).base64EncodedString()) ?? ""
+    }
+
+    func applyingGridConfig(_ encoded: String) -> SurfaceConfiguration? {
+        struct Counts: Decodable {
+            let rows: Int?
+            let columns: Int?
+        }
+        guard let data = Data(base64Encoded: encoded),
+              let counts = try? JSONDecoder().decode(Counts.self, from: data) else { return nil }
+        let rows = counts.rows ?? self.rows
+        let columns = counts.columns ?? self.columns
+        guard Self.gridCounts.contains(rows), Self.gridCounts.contains(columns) else { return nil }
+        return SurfaceConfiguration(host: host, port: port, columns: columns, rows: rows)
     }
 
     private static func validLabel(_ label: Substring) -> Bool {

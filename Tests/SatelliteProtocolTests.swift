@@ -6,6 +6,7 @@ struct SatelliteProtocolTests {
         try testFraming()
         testMessages()
         testConfiguration()
+        try testCompanionGridConfig()
         testPhysicalKeyPresses()
         testButtonReplies()
         testVerification()
@@ -67,6 +68,30 @@ struct SatelliteProtocolTests {
             precondition(SurfaceConfiguration(host: host, port: "16623", columns: 5, rows: 3) == nil)
         }
         precondition(SurfaceConfiguration(host: "companion.local", port: "0", columns: 5, rows: 3) == nil)
+    }
+
+    static func testCompanionGridConfig() throws {
+        let original = SurfaceConfiguration(host: "desk.local", port: "19000", columns: 5, rows: 3)!
+        let data = Data(base64Encoded: original.gridConfigFields)!
+        let advertised = try JSONSerialization.jsonObject(with: data) as! [[String: Any]]
+        precondition(advertised.map { $0["label"] as? String } == ["Row Count", "Column Count"])
+        precondition(advertised.map { $0["default"] as? Int } == [3, 5])
+        precondition(advertised.allSatisfy { ($0["max"] as? Int) == 32 })
+
+        func apply(_ json: String) -> SurfaceConfiguration? {
+            original.applyingGridConfig(Data(json.utf8).base64EncodedString())
+        }
+        let resized = apply(#"{"rows":8,"columns":12}"#)
+        precondition(resized?.host == "desk.local" && resized?.port == 19000)
+        precondition(resized?.keyIndex("7/11") == 95)
+        precondition(resized?.keyPressCommand(deviceID: "phone", index: 95, pressed: true)
+                     == "KEY-PRESS DEVICEID=phone KEY=7/11 PRESSED=1")
+        precondition(apply(#"{"columns":8}"#)?.rows == 3)
+        precondition(apply(#"{"rows":3,"columns":5}"#) == original)
+        precondition(apply(#"{"rows":0}"#) == nil)
+        precondition(apply(#"{"columns":33}"#) == nil)
+        precondition(apply(#"{"rows":3.5}"#) == nil)
+        precondition(original.applyingGridConfig("invalid base64!") == nil)
     }
 
     static func testPhysicalKeyPresses() {

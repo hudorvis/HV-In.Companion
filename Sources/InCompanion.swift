@@ -40,17 +40,17 @@ struct SurfaceView: View {
         VStack(spacing: fullScreen ? 0 : 8) {
             if !fullScreen { header }
             GeometryReader { geometry in
-                let columns = activeProfile?.configuration.columns ?? 5
-                let rows = activeProfile?.configuration.rows ?? 3
+                let columns = activeProfile == nil ? 5 : satellite.configuration?.columns ?? 5
+                let rows = activeProfile == nil ? 3 : satellite.configuration?.rows ?? 3
                 let grid = DeckLayout(size: geometry.size, columns: columns, rows: rows,
                                       corner: fullScreen ? Self.cornerSize : 0)
-                VStack(spacing: DeckLayout.gap) {
+                VStack(spacing: grid.gap) {
                     ForEach(0..<rows, id: \.self) { row in
-                        HStack(spacing: DeckLayout.gap) {
+                        HStack(spacing: grid.gap) {
                             ForEach(0..<columns, id: \.self) { column in
                                 let index = row * columns + column
                                 DeckKey(image: satellite.images[index],
-                                        enabled: satellite.connected && !showServers && phase == .active,
+                                        enabled: satellite.inputReady && !showServers && phase == .active,
                                         down: satellite.held.contains(index) || satellite.remoteHeld.contains(index),
                                         haptics: haptics, title: "Companion key \(row + 1), \(column + 1)") { down in
                                     satellite.press(index, down)
@@ -83,6 +83,16 @@ struct SurfaceView: View {
             do { try await Task.sleep(for: .milliseconds(1200)) } catch { return }
             reconcileServers()
         }
+        .onChange(of: satellite.configuration) { _, configuration in
+            if let configuration, let profile = activeProfile, configuration != profile.configuration {
+                let updated = SavedCompanion(configuration: configuration, bonjourID: profile.bonjourID)
+                activeProfile = updated
+                save(updated)
+            }
+        }
+        .onChange(of: awake) { _, awake in
+            UIApplication.shared.isIdleTimerDisabled = phase == .active && awake
+        }
         .onChange(of: satellite.stage) { _, stage in
             if stage == .connected, let activeProfile {
                 save(activeProfile)
@@ -94,11 +104,9 @@ struct SurfaceView: View {
             switch phase {
             case .active:
                 discovery.start()
-            case .inactive:
+                satellite.resumeConnection()
+            case .inactive, .background:
                 satellite.releaseAll()
-            case .background:
-                discovery.stop()
-                disconnect()
             @unknown default:
                 break
             }
@@ -206,6 +214,7 @@ struct SurfaceView: View {
                 if let error = satellite.error {
                     Text(error).foregroundStyle(.secondary)
                 }
+                Toggle("Keep Screen Awake", isOn: $awake)
                 if activeProfile != nil {
                     Button("Disconnect", role: .destructive) {
                         autoConnect = false
@@ -247,10 +256,11 @@ struct SurfaceView: View {
                     if service != activeService { connect(profile, service: service) }
                     return
                 }
-            } else {
-                guard automaticProfile != nil,
-                      satellite.stage == .reconnecting || satellite.stage == .failed else { return }
             }
+            // The retained service endpoint can reconnect without waiting for the
+            // Bonjour picker to repopulate. Switch only to another known server on loss.
+            guard let alternate = automaticProfile, alternate.id != profile.id,
+                  satellite.stage == .reconnecting || satellite.stage == .failed else { return }
             disconnect()
         }
         if let profile = automaticProfile, let service = nearbyServer(for: profile) {
@@ -310,20 +320,22 @@ struct SurfaceView: View {
 }
 
 private struct DeckLayout {
-    static let gap: CGFloat = 7
+    let gap: CGFloat
     let side: CGFloat
     let center: CGPoint
 
     init(size: CGSize, columns: Int, rows: Int, corner: CGFloat) {
+        let gap = min(7, max(1, min(size.width / CGFloat(columns), size.height / CGFloat(rows)) * 0.12))
+        self.gap = gap
         func keySize(in area: CGRect) -> CGFloat {
-            max(1, min((area.width - CGFloat(columns - 1) * Self.gap) / CGFloat(columns),
-                       (area.height - CGFloat(rows - 1) * Self.gap) / CGFloat(rows)))
+            max(1, min((area.width - CGFloat(columns - 1) * gap) / CGFloat(columns),
+                       (area.height - CGFloat(rows - 1) * gap) / CGFloat(rows)))
         }
 
         let bounds = CGRect(origin: .zero, size: size)
         let initialSide = keySize(in: bounds)
-        let width = CGFloat(columns) * initialSide + CGFloat(columns - 1) * Self.gap
-        let height = CGFloat(rows) * initialSide + CGFloat(rows - 1) * Self.gap
+        let width = CGFloat(columns) * initialSide + CGFloat(columns - 1) * gap
+        let height = CGFloat(rows) * initialSide + CGFloat(rows - 1) * gap
         let deck = CGRect(x: bounds.midX - width / 2, y: bounds.midY - height / 2, width: width, height: height)
         let toggle = CGRect(x: bounds.maxX - corner, y: 0, width: corner, height: corner)
         var area = bounds

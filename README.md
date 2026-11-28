@@ -1,4 +1,4 @@
-# In.Companion v26.11.27.06
+# In.Companion v26.11.28.01
 
 Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 
@@ -10,7 +10,9 @@ Native iPhone and iPad control surface for Bitfocus Companion 4.3 or later.
 4. Open In.Companion and allow **Local Network** access. Tap the connection status or server name at the top, then pick your installation under **Nearby**. The surface opens as soon as Companion sends button artwork.
 5. In Companion, open **Surfaces → Configured Surfaces** and select **In.Companion**. Configure the startup page and assignments in Companion. Repeat for each installation.
 
-On return to a network, In.Companion reconnects automatically if one saved Bonjour server is available. If several saved servers are present, tap the connection status or server name to choose. The iPhone identifies servers by the ID in their Bonjour advertisements and uses the currently advertised address and port. Each server retains its own surface setup via the iPhone's persistent Satellite ID. Any manual address saved in an earlier revision is also available in the picker. New surfaces use a 5 × 3 grid. Existing saved surfaces keep their grid.
+On return to a network, In.Companion reconnects automatically if one saved Bonjour server is available. If several saved servers are present, tap the connection status or server name to choose. The iPhone identifies servers by the ID in their Bonjour advertisements and uses the currently advertised address and port. Each server retains its own surface setup via the iPhone's persistent Satellite ID. Any manual address saved in an earlier revision is also available in the picker. New surfaces start with a 5 × 3 grid. In **Surfaces → Configured Surfaces**, select the connected **In.Companion** surface and set **Row Count** and **Column Count**. Each accepts 1–32; the app briefly re-registers the same surface to apply the layout. The settings are stored per Companion installation.
+
+**Keep Screen Awake** is on by default and can be changed in the Companion server picker. Returning from another app checks the existing connection first. If iOS suspended the connection or Companion closed it, In.Companion reconnects to the retained endpoint and verifies fresh artwork before accepting key presses. The system can suspend network activity while In.Companion is in the background.
 
 ### Announce an older Companion host
 
